@@ -1882,3 +1882,592 @@ Example (`task.moved`, after Bob's successful retry):
 
 ---
 
+## 5. Requirements and scenarios
+
+Each requirement is stated with **SHALL** and verified by its scenarios. Each scenario is an acceptance criterion written to be automated as an integration test. Headings follow the OpenSpec conventions (`### Requirement:` and `#### Scenario:` with **WHEN** / **THEN** bullets; **GIVEN** states the preconditions). Scenarios use the fixture from [§3.1](#31-conventions).
+
+## 5.1 F1 — Roles, workspaces and board permissions
+
+### Requirement: FR-1.1 Authenticated access
+
+Every `/api/v1` endpoint except `POST /auth/register`, `POST /auth/login` and `POST /auth/refresh` SHALL require a valid, unexpired access token. The gateway SHALL reject requests without one before they reach `core-api`.
+
+#### Scenario: Request without a token
+
+- **WHEN** a client calls `GET /api/v1/boards/{boardId}/summary` without an `Authorization` header
+- **THEN** the gateway responds `401 UNAUTHENTICATED`
+- **AND** `core-api` does not receive the request
+
+#### Scenario: Expired token
+
+- **GIVEN** an access token whose `exp` is in the past
+- **WHEN** the client calls any protected endpoint
+- **THEN** the response is `401 UNAUTHENTICATED`
+- **AND** `POST /auth/refresh` with a valid refresh token returns a new access token
+
+### Requirement: FR-1.2 Workspace ownership
+
+The creator of a workspace SHALL become its `OWNER`, and a workspace SHALL always keep at least one `OWNER`.
+
+#### Scenario: Creator becomes owner
+
+- **WHEN** Bob creates the workspace *Acme*
+- **THEN** the response is `201` with `myRole: "OWNER"`
+- **AND** `GET /workspaces/{workspaceId}/members` lists Bob with role `OWNER`
+
+#### Scenario: The last owner cannot be demoted or removed
+
+- **GIVEN** Bob is the only `OWNER` of *Acme*
+- **WHEN** Bob changes his own role to `ADMIN`, or removes himself
+- **THEN** the response is `409 LAST_OWNER`
+- **AND** Bob is still `OWNER`
+
+### Requirement: FR-1.3 Role-based authorization
+
+`core-api` SHALL authorize every request against the permission matrices in [§2.2](#22-enumerations-and-permissions), using the caller's effective role read from PostgreSQL at request time.
+
+#### Scenario: A viewer cannot edit a task
+
+- **GIVEN** Carol is `VIEWER` on *Platform* and task 42 is at version 7
+- **WHEN** Carol sends `PATCH /tasks/42` with `If-Match: "7"`
+- **THEN** the response is `403 FORBIDDEN`
+- **AND** task 42 is still at version 7 with unchanged fields, and no outbox event is written
+
+#### Scenario: A workspace admin manages any board
+
+- **GIVEN** Erin is workspace `ADMIN` of *Acme* without an explicit membership on *Platform*
+- **WHEN** Erin changes Carol's board role on *Platform* to `EDITOR`
+- **THEN** the response is `200 OK` and Carol's effective role is `EDITOR`
+
+#### Scenario: A workspace admin cannot grant admin
+
+- **GIVEN** Erin is workspace `ADMIN` and Alice is workspace `MEMBER`
+- **WHEN** Erin changes Alice's workspace role to `ADMIN`
+- **THEN** the response is `403 FORBIDDEN` and Alice is still `MEMBER`
+
+### Requirement: FR-1.4 Access isolation
+
+Requests for resources of a board on which the caller has no effective role SHALL respond `404 NOT_FOUND`, indistinguishable from a nonexistent resource.
+
+#### Scenario: An outsider probes a board
+
+- **WHEN** Dave requests `GET /boards/{platform}/summary`, `GET /tasks/42` and `GET /attachments/150`
+- **THEN** each response is `404 NOT_FOUND` with the same body shape as for a random nonexistent id
+
+### Requirement: FR-1.5 Immediate effect of permission changes
+
+Role changes and removals SHALL take effect on the user's next REST request, because roles are not stored in tokens. Real-time subscriptions that lose access SHALL be revoked within 2 s (p95).
+
+#### Scenario: A member is removed from a board
+
+- **GIVEN** Carol is subscribed to *Platform* over WebSocket
+- **WHEN** Bob removes Carol from *Platform*
+- **THEN** Carol's next `GET /boards/{platform}/summary` responds `404 NOT_FOUND`
+- **AND** Carol's socket receives `subscription.revoked` for *Platform* within 2 s
+- **AND** Carol receives no further *Platform* events
+
+#### Scenario: Removal from the workspace cascades to boards
+
+- **GIVEN** Alice is `EDITOR` on *Platform*
+- **WHEN** Bob removes Alice from *Acme*
+- **THEN** Alice's explicit memberships on every *Acme* board are deleted in the same transaction
+- **AND** Alice receives `404 NOT_FOUND` for *Platform* resources
+
+## 5.2 F2 — Optimized board summary
+
+### Requirement: FR-2.1 Lightweight summary
+
+`GET /boards/{boardId}/summary` SHALL return the board, its columns ordered by position and, for each column, `taskCount` and the first 50 active tasks ordered by position as `TaskCard`s. It SHALL NOT include task descriptions, attachment metadata, archived tasks or member details, and the query that builds it SHALL NOT read `tasks.description`.
+
+#### Scenario: Heavy fields are excluded
+
+- **GIVEN** task 42 has a 20,000-character description and 3 `COMPLETED` attachments
+- **WHEN** Carol requests the *Platform* summary
+- **THEN** the card for task 42 contains exactly the `TaskCard` fields, with `attachmentCount: 3`
+- **AND** the response contains no `description` field for any task
+
+#### Scenario: The reference board stays small
+
+- **GIVEN** the reference board (10 columns, 1,000 active tasks, descriptions of 2 KB on average)
+- **WHEN** its summary is requested
+- **THEN** the uncompressed body is at most 200 KB and contains at most 500 cards
+
+### Requirement: FR-2.2 Column pagination
+
+Columns with more than 50 active tasks SHALL return a `nextCursor`, and `GET /columns/{columnId}/tasks` SHALL return the following cards in position order without duplicates or gaps.
+
+#### Scenario: Paging a long column
+
+- **GIVEN** *To Do* has 120 active tasks
+- **WHEN** the summary is requested
+- **THEN** *To Do* has `taskCount: 120`, 50 cards and a non-null `nextCursor`
+- **AND** following the cursor with `limit=50` returns 50 cards and then 20 cards, the last page with `nextCursor: null`
+
+### Requirement: FR-2.3 Cache-aside on Redis
+
+`core-api` SHALL serve the summary from `board-summary:{boardId}` when present, and on a miss SHALL build it from PostgreSQL and store it with a TTL of 300 s. The per-user `board.myRole` SHALL be computed per request and never stored in the cache. The response header `X-Cache` SHALL report `HIT`, `MISS` or `BYPASS`.
+
+#### Scenario: The second read is a cache hit
+
+- **GIVEN** the *Platform* summary is not cached
+- **WHEN** Carol requests it twice with no writes in between
+- **THEN** the first response has `X-Cache: MISS` and the second `X-Cache: HIT`
+- **AND** `board_summary_cache_requests_total{result="hit"}` increases by 1
+
+#### Scenario: The cached summary does not leak roles
+
+- **WHEN** Carol (`VIEWER`) and then Bob (`ADMIN`) request the *Platform* summary
+- **THEN** Bob's response is a cache hit with `board.myRole: "ADMIN"`
+- **AND** Carol's response has `board.myRole: "VIEWER"`
+
+### Requirement: FR-2.4 Cache invalidation
+
+Every committed write that changes a board's summary (task created, updated, moved or archived; column changed; board updated; attachment processed or deleted) SHALL invalidate `board-summary:{boardId}` twice: by `core-api` right after the commit, and by the `core-api.summary-cache` consumer when it receives the corresponding event. If both fail, staleness SHALL be bounded by the 300 s TTL.
+
+#### Scenario: Read-your-writes after a move
+
+- **GIVEN** the *Platform* summary is cached
+- **WHEN** Bob moves task 42 to *In Progress* and receives `200` with `ETag: "9"`
+- **AND** Carol then requests the summary
+- **THEN** the response shows task 42 in *In Progress* with `version: 9`
+
+#### Scenario: Event-driven invalidation backs up the fast path
+
+- **GIVEN** the post-commit invalidation failed because Redis was briefly unreachable
+- **WHEN** `core-api.summary-cache` consumes the `task.moved` event
+- **THEN** the key is deleted
+- **AND** the next summary request has `X-Cache: MISS` and reflects the move
+
+### Requirement: FR-2.5 Degraded mode without Redis
+
+If Redis is unavailable, the summary SHALL be served from PostgreSQL with `200 OK` and `X-Cache: BYPASS`, and `board_summary_cache_requests_total{result="error"}` SHALL increase.
+
+#### Scenario: Redis is down
+
+- **GIVEN** the `redis` container is stopped
+- **WHEN** Carol requests the *Platform* summary
+- **THEN** the response is `200 OK` with `X-Cache: BYPASS` and the same content a cache miss would return
+
+## 5.3 F3 — Optimistic concurrency control on tasks
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant A as Alice (web)
+    participant B as Bob (web)
+    participant API as core-api
+    participant DB as PostgreSQL
+    A->>API: GET /tasks/42
+    API-->>A: 200 ETag 7
+    B->>API: GET /tasks/42
+    API-->>B: 200 ETag 7
+    A->>API: PATCH /tasks/42 description, If-Match 7
+    API->>DB: UPDATE ... WHERE id = 42 AND version = 7
+    DB-->>API: 1 row, version 8
+    API-->>A: 200 ETag 8
+    B->>API: PATCH /tasks/42/position In Progress, If-Match 7
+    API->>DB: UPDATE ... WHERE id = 42 AND version = 7
+    DB-->>API: 0 rows
+    API-->>B: 412 VERSION_CONFLICT + current task (version 8)
+    B->>API: PATCH /tasks/42/position In Progress, If-Match 8
+    API-->>B: 200 ETag 9, description preserved
+```
+
+### Requirement: FR-3.1 Task versions exposed as ETags
+
+Every task SHALL have an integer `version` that starts at 1, and each successful change through `PATCH /tasks/{taskId}`, `PATCH /tasks/{taskId}/position` or `DELETE /tasks/{taskId}` SHALL increment it by exactly 1. Every response that returns a task, including `412`, SHALL carry `ETag: "<version>"`, and `TaskCard` and `TaskDetail` SHALL include `version`.
+
+#### Scenario: A new task starts at version 1
+
+- **WHEN** Alice creates a task
+- **THEN** the response is `201` with `ETag: "1"` and `version: 1`
+
+#### Scenario: Sequential edits
+
+- **GIVEN** task 42 is at version 7
+- **WHEN** Alice changes the title with `If-Match: "7"` and then the description with `If-Match: "8"`
+- **THEN** the responses carry `ETag: "8"` and `ETag: "9"`
+
+### Requirement: FR-3.2 Conditional writes
+
+Task mutations SHALL require `If-Match`. A missing header or `*` SHALL return `428 PRECONDITION_REQUIRED`; a malformed value SHALL return `400 INVALID_IF_MATCH`; a version different from the current one SHALL return `412 VERSION_CONFLICT` with the current `TaskDetail` (`current`) and its `ETag`. A rejected write SHALL change nothing and emit no event.
+
+#### Scenario: The lost update from the case is prevented
+
+- **GIVEN** Alice and Bob both loaded task 42 at version 7, in *To Do*
+- **WHEN** Alice sends `PATCH /tasks/42` with a new description and `If-Match: "7"`
+- **AND** two seconds later Bob sends `PATCH /tasks/42/position` to *In Progress* with `If-Match: "7"`
+- **THEN** Alice receives `200` with `ETag: "8"`
+- **AND** Bob receives `412 VERSION_CONFLICT` whose `current.version` is 8 and `current.description` is Alice's text
+- **AND** task 42 is still in *To Do* with Alice's description, and only one `task.updated` event was emitted
+
+#### Scenario: Retrying after the conflict keeps both changes
+
+- **GIVEN** Bob received the `412` above
+- **WHEN** Bob retries the move with `If-Match: "8"`
+- **THEN** the response is `200` with `ETag: "9"`
+- **AND** task 42 is in *In Progress* and its description is still Alice's text
+
+#### Scenario: Missing precondition
+
+- **WHEN** a client sends `PATCH /tasks/42` without `If-Match`, or with `If-Match: *`
+- **THEN** the response is `428 PRECONDITION_REQUIRED` and the task is unchanged
+
+### Requirement: FR-3.3 Atomic check across instances
+
+The version check and the write SHALL be a single conditional `UPDATE ... WHERE id = $1 AND version = $2` ([§2.3](#23-relational-schema-postgresql)), so that correctness does not depend on the number of `core-api` replicas or on in-process locks.
+
+#### Scenario: Concurrent writers on two replicas
+
+- **GIVEN** task 42 is at version 5 and two `core-api` replicas run behind the gateway
+- **WHEN** 20 clients concurrently send `PATCH /tasks/42` with different titles and `If-Match: "5"`
+- **THEN** exactly one receives `200` with `ETag: "6"` and 19 receive `412 VERSION_CONFLICT`
+- **AND** the final version is 6, the title is the one from the successful request, and `occ_conflicts_total` increased by 19
+
+### Requirement: FR-3.4 Intent-based partial writes
+
+Task mutations SHALL express the user's intent: `PATCH /tasks/{taskId}` changes only the fields present in the body, and column and position change only through `PATCH /tasks/{taskId}/position`. Bodies with any other field SHALL be rejected with `400 VALIDATION_ERROR`, and full replacement (`PUT`) SHALL NOT be supported.
+
+#### Scenario: A stale full payload is rejected
+
+- **WHEN** a client sends `PATCH /tasks/42` with the complete task object it loaded earlier (including `id`, `columnId`, `position` and `version`)
+- **THEN** the response is `400 VALIDATION_ERROR` listing the disallowed fields, and the task is unchanged
+
+#### Scenario: Moving does not touch content
+
+- **GIVEN** task 42 is at version 8 with description *D*
+- **WHEN** Bob sends `PATCH /tasks/42/position` with `If-Match: "8"`
+- **THEN** only `column_id`, `position`, `version`, `updated_by` and `updated_at` change, and the description is still *D*
+
+#### Scenario: PUT is not allowed
+
+- **WHEN** a client sends `PUT /tasks/42`
+- **THEN** the response is `405 METHOD_NOT_ALLOWED` with `Allow: GET, PATCH, DELETE`
+
+### Requirement: FR-3.5 Version isolation
+
+A task's version SHALL change only through the operations in FR-3.1. No-op updates, attachment operations, column changes and changes to other tasks SHALL NOT change it.
+
+#### Scenario: No-op update
+
+- **GIVEN** task 42 is at version 8 with the title *Login page*
+- **WHEN** Alice sends `PATCH /tasks/42` with `{"title": "Login page"}` and `If-Match: "8"`
+- **THEN** the response is `200` with `ETag: "8"` and no event is emitted
+
+#### Scenario: Attachments do not change the version
+
+- **GIVEN** task 42 is at version 8
+- **WHEN** Alice uploads and confirms an attachment and it reaches `COMPLETED`
+- **THEN** `GET /tasks/42` still returns `ETag: "8"`
+
+#### Scenario: Moving one task leaves the others untouched
+
+- **GIVEN** tasks 41 and 43 are in *In Progress*
+- **WHEN** Bob moves task 42 right after task 41
+- **THEN** the versions of tasks 41 and 43 do not change
+
+### Requirement: FR-3.6 Client conflict handling
+
+On `412`, the web client SHALL NOT resend the rejected request automatically. It SHALL replace its local copy with `current`, show the current server values of the fields the user was changing, and let the user re-apply the change (with the new `ETag`) or discard it.
+
+#### Scenario: Conflict dialog
+
+- **GIVEN** Bob's move was rejected with `412`
+- **WHEN** the web client handles the response
+- **THEN** it shows Alice's description as the current value and offers *Re-apply move* and *Discard*
+- **AND** choosing *Re-apply move* sends one `PATCH /tasks/42/position` with `If-Match: "8"`
+
+## 5.4 F4 — Asynchronous heavy uploads
+
+### Requirement: FR-4.1 Upload authorization
+
+`POST /tasks/{taskId}/attachments` SHALL check the role (`EDITOR` or higher), that the task is not archived, that `sizeBytes` is between 1 and 262,144,000, and that `contentType` is in the allowlist. It SHALL then create a `PENDING` attachment and return a pre-signed POST valid for 15 min whose policy fixes the bucket, object key, `Content-Type` and `content-length-range [sizeBytes, sizeBytes]`.
+
+#### Scenario: Requesting an upload for a 150 MB design file
+
+- **WHEN** Alice requests an upload of `homepage-v3.psd`, `image/vnd.adobe.photoshop`, 157,286,400 bytes, on task 42
+- **THEN** the response is `201` with `attachment.status: "PENDING"` and `upload.expiresAt` 15 min ahead
+- **AND** task 42's version does not change
+
+#### Scenario: Oversized or disallowed file
+
+- **WHEN** Alice requests an upload of 300,000,000 bytes, or with `contentType: "text/html"`
+- **THEN** the response is `400` with `code` `FILE_TOO_LARGE` or `UNSUPPORTED_CONTENT_TYPE`
+- **AND** no attachment is created
+
+#### Scenario: A viewer cannot upload
+
+- **WHEN** Carol requests an upload on task 42
+- **THEN** the response is `403 FORBIDDEN`
+
+### Requirement: FR-4.2 File bytes never traverse the API
+
+File content SHALL travel directly from the browser to object storage. The gateway SHALL reject request bodies larger than 1 MiB with `413` before they reach `core-api`, and `core-api` SHALL NOT read or stream object bodies.
+
+#### Scenario: Attempt to send a file through the API
+
+- **WHEN** a client sends a 150 MB body to any `/api/v1` endpoint
+- **THEN** the gateway responds `413 PAYLOAD_TOO_LARGE`
+- **AND** `core-api` receives no request
+
+#### Scenario: Storage enforces the declared size
+
+- **GIVEN** an upload authorized for 157,286,400 bytes
+- **WHEN** the browser posts a larger or smaller file to `upload.url`
+- **THEN** object storage rejects it with a `4xx` response and stores no object
+
+#### Scenario: Readers are not affected by large uploads
+
+- **GIVEN** 10 users upload 150 MB files concurrently
+- **WHEN** 50 users read the *Platform* summary at the same time
+- **THEN** [NFR-1](#6-non-functional-requirements) latency targets hold
+- **AND** `core-api` resident memory stays within 50 MB of its idle baseline ([NFR-4](#6-non-functional-requirements))
+
+### Requirement: FR-4.3 Upload confirmation
+
+`POST /attachments/{attachmentId}/confirm` SHALL verify that the object exists and that its size equals `sizeBytes`, then in one transaction set `uploadConfirmedAt` and insert the `attachment.process` job into the outbox, and respond `202`. Confirmation SHALL be idempotent.
+
+#### Scenario: Confirm after uploading
+
+- **GIVEN** Alice uploaded the file to object storage
+- **WHEN** she confirms attachment 150
+- **THEN** the response is `202` with `status: "PENDING"` and `uploadConfirmedAt` set
+- **AND** exactly one `attachment.process` job is published
+
+#### Scenario: Confirm before uploading
+
+- **WHEN** Alice confirms an attachment whose object does not exist
+- **THEN** the response is `409 UPLOAD_NOT_FOUND`, the status stays `PENDING` and no job is created
+
+#### Scenario: Double confirmation
+
+- **WHEN** Alice confirms attachment 150 twice
+- **THEN** both responses are `202` and only one job exists
+
+### Requirement: FR-4.4 Asynchronous processing
+
+`file-worker` SHALL consume jobs, move the attachment from `PENDING` to `PROCESSING`, stream the object without loading it entirely in memory, verify that the file signature matches the declared content type, generate a WebP preview (longest side at most 512 px) for image types, set `COMPLETED`, and write `attachment.processed` to the outbox in the same transaction. Invalid files SHALL become `FAILED` without retry, and their object SHALL be deleted. Processing SHALL be idempotent per attachment.
+
+#### Scenario: Image processed successfully
+
+- **GIVEN** a confirmed 150 MB `image/png` mock-up attached to task 42
+- **WHEN** `file-worker` processes the job
+- **THEN** the status becomes `PROCESSING` and then `COMPLETED` with `hasPreview: true`
+- **AND** users subscribed to *Platform* receive `attachment.processed`
+- **AND** the next summary shows task 42 with `attachmentCount` increased by 1
+
+#### Scenario: Content does not match the declared type
+
+- **GIVEN** an attachment declared as `image/png` whose bytes are a Windows executable
+- **WHEN** `file-worker` processes the job
+- **THEN** the attachment becomes `FAILED` / `CONTENT_TYPE_MISMATCH` after one attempt
+- **AND** the object is deleted from storage
+
+#### Scenario: Duplicate job delivery
+
+- **GIVEN** the job for attachment 150 is delivered twice
+- **WHEN** `file-worker` receives the second delivery after the first one completed
+- **THEN** it acknowledges without reprocessing and emits no second `attachment.processed`
+
+### Requirement: FR-4.5 Retries and dead-lettering
+
+Transient failures SHALL be retried up to 3 times after 10 s, 60 s and 300 s. After the 4th failed attempt the job SHALL be moved to `file-worker.attachment-process.dlq` and the attachment SHALL become `FAILED` / `PROCESSING_ERROR`, emitting `attachment.processed`.
+
+#### Scenario: Transient storage error
+
+- **GIVEN** object storage times out on the first attempt only
+- **WHEN** the job is processed
+- **THEN** it is retried about 10 s later and the attachment becomes `COMPLETED`
+
+#### Scenario: Persistent failure
+
+- **GIVEN** object storage is unreachable for 10 min
+- **WHEN** the job is processed
+- **THEN** after 4 attempts the message is in `file-worker.attachment-process.dlq`
+- **AND** the attachment is `FAILED` / `PROCESSING_ERROR` and subscribers receive `attachment.processed`
+
+### Requirement: FR-4.6 Status query and download
+
+Clients SHALL be able to read the processing status with `GET /attachments/{attachmentId}` and, only when the status is `COMPLETED`, obtain a pre-signed download URL valid for 5 min.
+
+#### Scenario: Download before the file is ready
+
+- **WHEN** Carol requests a download URL for a `PROCESSING` attachment
+- **THEN** the response is `409 ATTACHMENT_NOT_READY`
+
+#### Scenario: Download when ready
+
+- **WHEN** Carol requests a download URL for attachment 150 in `COMPLETED`
+- **THEN** the response is `200` with `expiresAt` at most 5 min ahead
+- **AND** the URL downloads the file with `Content-Disposition: attachment` and the name `homepage-v3.psd`
+
+### Requirement: FR-4.7 Upload cleanup
+
+`file-worker` SHALL run a cleanup every 10 min that fails unconfirmed `PENDING` attachments older than 60 min (deleting their object if present) with `UPLOAD_NOT_CONFIRMED`, and `PROCESSING` attachments without an update for 30 min with `PROCESSING_TIMEOUT`.
+
+#### Scenario: Abandoned upload
+
+- **GIVEN** Alice requested an upload and closed the browser without confirming
+- **WHEN** 60 min have passed and the cleanup runs
+- **THEN** the attachment is `FAILED` / `UPLOAD_NOT_CONFIRMED` and no object remains under its key
+- **AND** a later confirmation returns `410 UPLOAD_EXPIRED`
+
+## 5.5 F5 — Real-time board notifications
+
+### Requirement: FR-5.1 Transactional outbox
+
+Every write that changes board state SHALL insert its events into `outbox_events` in the same transaction as the change. Rolled-back or rejected writes SHALL produce no events.
+
+#### Scenario: Crash between commit and publish
+
+- **GIVEN** Alice's `PATCH /tasks/42` committed and its outbox row exists
+- **WHEN** `outbox-relay` crashes before publishing and is restarted
+- **THEN** the relay publishes the event and Bob, subscribed to *Platform*, receives `task.updated`
+
+#### Scenario: A rejected write emits nothing
+
+- **WHEN** a task mutation fails with `403`, `409`, `412` or `428`
+- **THEN** no outbox row is created
+
+### Requirement: FR-5.2 Decoupled, reliable relay
+
+Task and board operations SHALL NOT call RabbitMQ or `realtime` synchronously. `outbox-relay` SHALL publish with publisher confirms, mark rows only after the confirm, and retry with exponential backoff (1 s up to 30 s) while the broker is unavailable.
+
+#### Scenario: Broker outage
+
+- **GIVEN** the `rabbitmq` container is stopped
+- **WHEN** Alice edits task 42
+- **THEN** she receives `200` within the [NFR-2](#6-non-functional-requirements) latency target and `outbox_pending_events` grows
+- **AND** after `rabbitmq` is restarted, Bob receives `task.updated` without manual intervention
+
+### Requirement: FR-5.3 Authenticated real-time connections
+
+WebSocket connections SHALL be authenticated with a single-use ticket from `POST /realtime/tickets`, valid for 30 s. Missing, expired or reused tickets SHALL be closed with code `4401`.
+
+#### Scenario: Valid ticket
+
+- **WHEN** Bob opens `/ws?ticket=<ticket>` within 30 s of obtaining it
+- **THEN** the connection stays open and `subscribe` messages are processed
+
+#### Scenario: Reused ticket
+
+- **GIVEN** Bob already connected with ticket *T*
+- **WHEN** another connection presents *T*
+- **THEN** that connection is closed with code `4401`
+
+### Requirement: FR-5.4 Authorized subscriptions and delivery
+
+`realtime` SHALL accept a `subscribe` only when the user has an effective role on the board, and SHALL push each domain event only to sockets subscribed to the event's `boardId`. The time from commit to delivery SHALL be at most 2 s at p95.
+
+#### Scenario: Board viewers are notified of a modification
+
+- **GIVEN** Bob and Carol are subscribed to *Platform*
+- **WHEN** Alice moves task 42 to *In Progress*
+- **THEN** within 2 s both receive a `task.moved` event with `fromColumnId` *To Do*, `toColumnId` *In Progress* and `aggregate.version` equal to the `ETag` Alice received
+
+#### Scenario: Unauthorized subscription
+
+- **WHEN** Dave sends `subscribe` for *Platform*
+- **THEN** he receives `error` with `code: "FORBIDDEN"`
+- **AND** no *Platform* event is delivered to his socket
+
+#### Scenario: No cross-board leakage
+
+- **GIVEN** Carol is subscribed only to *Platform*
+- **WHEN** a task changes on another board
+- **THEN** Carol receives no event
+
+### Requirement: FR-5.5 Idempotent, order-tolerant consumption
+
+Consumers SHALL tolerate duplicates and reordering. The web client SHALL apply each `eventId` at most once, and SHALL ignore task events whose `aggregate.version` is less than or equal to the version it already holds.
+
+#### Scenario: Duplicate event
+
+- **GIVEN** `outbox-relay` published the same `task.updated` twice because it crashed before marking the row
+- **WHEN** Bob's client receives both copies
+- **THEN** it applies the change once
+
+#### Scenario: Stale event
+
+- **GIVEN** Bob's client holds task 42 at version 9
+- **WHEN** it receives `task.updated` with `aggregate.version: 8`
+- **THEN** the event is ignored
+
+### Requirement: FR-5.6 Reconnection and resynchronization
+
+When the connection drops, the web client SHALL mark open boards as possibly outdated, reconnect with exponential backoff (1 s up to 30 s, with jitter) using a new ticket, re-subscribe, and refetch the summaries of its open boards.
+
+#### Scenario: realtime restarts
+
+- **GIVEN** Bob is subscribed to *Platform*
+- **WHEN** `realtime` restarts and Alice edits task 42 during the restart
+- **THEN** Bob's client reconnects, refetches the *Platform* summary and shows the latest version of task 42
+
+---
+
+## 6. Non-functional requirements
+
+**Reference environment for measurements:** Docker Compose on one host with 4 vCPU and 8 GB RAM; reference board with 10 columns, 1,000 active tasks (descriptions of 2 KB on average) and 50 concurrent viewers.
+
+| ID | Category | Requirement | Verification |
+|---|---|---|---|
+| NFR-1 | Performance | `GET /boards/{boardId}/summary` p95 ≤ 100 ms on a cache hit and ≤ 500 ms on a miss, at 50 requests/s on the reference board. | k6 load test; `http_server_request_duration_seconds` |
+| NFR-2 | Performance | Task mutations p95 ≤ 250 ms at 20 writes/s on the reference board. | k6 load test |
+| NFR-3 | Latency | Commit-to-client notification p95 ≤ 2 s and p99 ≤ 5 s with a healthy broker. | End-to-end test; `notification_delivery_lag_seconds` |
+| NFR-4 | Isolation | With 10 concurrent 150 MB uploads, `core-api` resident memory stays ≤ idle baseline + 50 MB and NFR-1 still holds. | k6 + container memory metrics |
+| NFR-5 | Payload | The reference board summary is ≤ 200 KB uncompressed. | Integration test |
+| NFR-6 | Scalability | `core-api`, `realtime` and `file-worker` are stateless and horizontally scalable. Docker Compose runs at least 2 `core-api` replicas behind the gateway. | Compose file; FR-3.3 scenario |
+| NFR-7 | Resilience | Task and board writes keep working when RabbitMQ, Redis, `realtime` or `file-worker` are down. Redis down → summary from PostgreSQL (`X-Cache: BYPASS`). Object storage down → only upload confirmation and attachment deletion return `503`; the transfers themselves fail until storage recovers. | Chaos tests with `docker compose stop` |
+| NFR-8 | Security | See the list below. | Code review; integration tests |
+| NFR-9 | Observability | See the list below. | Grafana dashboards |
+| NFR-10 | Durability | PostgreSQL is the only source of truth. Exchanges and queues are durable (quorum queues for work), messages are persistent, publishing uses confirms and consuming uses manual acks. Outbox rows are kept 7 days after publication. | Configuration review; FR-5.1 and FR-5.2 scenarios |
+| NFR-11 | Compatibility | The web client supports the two latest major versions of Chrome, Edge, Firefox and Safari. | Manual test matrix |
+
+**NFR-8 Security**
+
+- TLS 1.2 or higher terminated at the gateway in deployed environments (local Docker Compose may use HTTP on `localhost`).
+- Passwords hashed with argon2id; passwords, tokens, pre-signed URLs and task descriptions are never logged.
+- Access tokens: JWT RS256, 15 min. Refresh tokens: opaque, 7 days, stored as SHA-256 hashes, rotated on every use, with reuse detection.
+- Authorization is enforced in `core-api` on every request with the current database state, and in `realtime` on every subscription and membership event.
+- The bucket is private. Upload URLs expire after 15 min and download URLs after 5 min. Downloads are served as `Content-Disposition: attachment`. SVG, HTML and executables are rejected.
+- Internal endpoints and service ports are not exposed through the gateway; internal calls require `X-Internal-Token`.
+- Secrets come from environment variables or Docker secrets and are never committed.
+- Strict request schemas and parameterized SQL only.
+
+**NFR-9 Observability**
+
+- Metrics (Prometheus): `http_server_request_duration_seconds{service,route,method,status}`, `occ_conflicts_total{operation}`, `board_summary_cache_requests_total{result}`, `outbox_pending_events`, `outbox_publish_lag_seconds`, `file_jobs_total{result}` (`completed`, `failed`, `retried`, `dead_lettered`), `file_job_duration_seconds`, `ws_connections`, `ws_events_delivered_total`, `notification_delivery_lag_seconds`, and RabbitMQ queue depths.
+- Logs: structured JSON on stdout with `timestamp`, `level`, `service`, `correlationId`, `userId` and `message`, collected by Loki.
+- Dashboards (Grafana): API latency and errors, OCC conflicts, cache hit ratio, outbox lag, file pipeline, WebSocket connections and delivery lag. Alerts on DLQ depth > 0 and on `outbox_pending_events` growing for more than 5 min.
+- Tracing (recommended for this case): OpenTelemetry with W3C `traceparent` propagated through HTTP and AMQP headers, exported to Tempo or Jaeger.
+
+---
+
+## 7. Edge cases and failure handling
+
+| Situation | Expected behavior |
+|---|---|
+| A client sends the full task object to `PATCH /tasks/{taskId}` | `400 VALIDATION_ERROR` listing the disallowed fields; nothing changes ([FR-3.4](#requirement-fr-34-intent-based-partial-writes)). |
+| `If-Match` is weak (`W/"7"`), a list, or not numeric | `400 INVALID_IF_MATCH`. |
+| A task is moved to its current column and position | `200` with the same `ETag`; no event. |
+| `afterTaskId` is the task itself | `400 VALIDATION_ERROR`. |
+| `afterTaskId` was moved or archived by someone else | `409 INVALID_ANCHOR`; the client refreshes the column and retries. |
+| `columnId` belongs to another board | `400 VALIDATION_ERROR`. |
+| A column with active tasks is deleted | `409 COLUMN_NOT_EMPTY`. |
+| The summary shows a stale `version` (cache lag) and the client writes with it | `412` with `current`; the client uses `current.version`. No loop, because `current` comes from PostgreSQL. |
+| A member with assigned tasks is removed from the board | Assignments are kept and shown as a former member. On the next `PATCH`, only newly added assignee ids are validated. |
+| The browser uploads a file whose real type differs from the declared one | Storage accepts it (the policy fixes only the header); `file-worker` detects the signature mismatch → `FAILED` / `CONTENT_TYPE_MISMATCH` and the object is deleted. |
+| The same file is uploaded twice | Two independent attachments; no deduplication. |
+| An attachment is deleted while it is `PROCESSING` | Allowed. The worker finds no row, acknowledges the job and deletes any preview it wrote. |
+| The task is archived while an attachment is processing | Processing completes; attachments of archived tasks are kept. |
+| Confirmation arrives after the URL expired but before cleanup, and the object exists | Accepted (`202`); the object was stored within the policy window. |
+| PostgreSQL is unavailable | `core-api` responds `503 SERVICE_UNAVAILABLE` on every endpoint, including cached summaries (authorization needs the database). |
+| Redis is unavailable | Summary served from PostgreSQL (`X-Cache: BYPASS`); `POST /realtime/tickets` returns `503`; the web client falls back to refetching open summaries every 30 s until real time is back. |
+| RabbitMQ is unavailable | Writes succeed; events and file jobs wait in the outbox; notifications and processing resume when the broker returns. |
+| `realtime` is unavailable | REST is unaffected; clients reconnect with backoff and resynchronize. |
+| Object storage is unavailable | Upload and download URLs are still issued (signing is local) but the transfers fail; confirmation and attachment deletion return `503`; queued jobs are retried. |
+| Membership change while a socket is subscribed | Events may be delivered until the membership event is processed (p95 ≤ 2 s); then `subscription.revoked`. |
+| Clock skew between services | Correctness never depends on timestamps; ordering uses `version` and `seq`. |
+| A board grows beyond the reference size | The summary stays bounded at 50 cards per column and 20 columns. |
+
+---
