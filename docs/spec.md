@@ -2471,3 +2471,73 @@ When the connection drops, the web client SHALL mark open boards as possibly out
 | A board grows beyond the reference size | The summary stays bounded at 50 cards per column and 20 columns. |
 
 ---
+
+## 8. Constraints, assumptions and dependencies
+
+**Constraints**
+
+- **C-1** All deliverables (this file, ADRs, diagram labels, code, comments, README, commit messages) are written in English.
+- **C-2** Wave 2 runs entirely with Docker Compose in a monorepo, keeping `/docs` intact.
+- **C-3** Mandatory open-source ecosystem: an API Gateway as the single entry point, PostgreSQL, RabbitMQ, Redis, and Prometheus + Loki + Grafana.
+- **C-4** Stack fixed by the C4 diagram: React web application; Node.js API and worker; PostgreSQL; RabbitMQ; S3-compatible object storage.
+- **C-5** The implementation follows this contract. Contract changes are made in this file first (spec-driven development).
+
+**Assumptions**
+
+- **A-1** Users register themselves; administrators add existing users by email.
+- **A-2** Sizing: up to 5,000 active tasks and 500 members per board, 20 columns per board, files up to 250 MiB.
+- **A-3** Conflicting writes to the same task are rare compared to reads (basis for OCC in ADR 001).
+- **A-4** Clients are modern browsers with WebSocket support that can upload to object storage with CORS.
+- **A-5** Single region and a single PostgreSQL primary.
+
+**Dependencies**
+
+- **D-1** S3-compatible storage with pre-signed POST policies (AWS S3; MinIO in Docker Compose).
+- **D-2** RabbitMQ with quorum queues (3.13 or later).
+- **D-3** Redis 7 or later (`GETDEL`).
+- **D-4** PostgreSQL 15 or later.
+- **D-5** An open-source API Gateway with JWT validation, rate limiting, body-size limits and WebSocket proxying (for example Kong, Apache APISIX or Traefik).
+
+---
+
+## 9. Open questions
+
+| # | Question | Proposed default | Impact |
+|---|---|---|---|
+| Q-1 | The C4 diagram does not show the API Gateway, Redis, `realtime` or `outbox-relay`, which this spec and Wave 2 require. | Update the diagram before the Wave 1 delivery. | Consistency between Tech Spec, C4 and spec.md. |
+| Q-2 | There is no ADR for the board-summary cache (Redis cache-aside, 300 s TTL, double invalidation) or for the API Gateway product. | Add ADR 004 (summary cache) and ADR 005 (gateway: Kong vs. APISIX vs. Traefik). | Wave 2 requires databases and caching to be justified in ADRs. |
+| Q-3 | Is `realtime` a separate service or a module inside `core-api`? ADR 003 calls it a "notification module". | Separate service, so long-lived connections do not consume REST API resources. | Compose services, C4 diagram. |
+| Q-4 | Self-issued JWT or an identity provider such as Keycloak? | Self-issued JWT (RS256) by `core-api`. | Auth endpoints, gateway configuration. |
+| Q-5 | Where does the web client keep the refresh token: memory or an `HttpOnly` cookie? | `HttpOnly`, `Secure`, `SameSite=Strict` cookie scoped to `/api/v1/auth`. | Changes the body/headers of `/auth/login` and `/auth/refresh`. |
+| Q-6 | Maximum file size (250 MiB) and the content-type allowlist (should `.fig` or `application/octet-stream` be accepted?). | Keep 250 MiB and the current allowlist. | Validation and worker signature checks. |
+| Q-7 | Antivirus scanning (for example ClamAV) in `file-worker`. | Out of scope for this version. | Worker pipeline and NFR-8. |
+| Q-8 | Auto-merge of disjoint fields (a move after a description edit), mentioned as future work in ADR 001. | Out of scope; the client re-applies after `412`. | FR-3.2, user experience. |
+| Q-9 | OCC for column renames/reorders and board settings. | Out of scope; field-level `PATCH` only. | Column and board endpoints. |
+| Q-10 | The C4 database description mentions "task versions". Does it mean the `version` column or a revision history table? | Only the `version` column; revision history is a non-goal. | Schema and scope. |
+
+---
+
+## 10. Glossary
+
+| Term | Definition |
+|---|---|
+| **Lost update** | A write silently overwrites another user's earlier write because it was based on stale data. |
+| **OCC (Optimistic Concurrency Control)** | Writes succeed only if the entity still has the version the client read; no locks are held. |
+| **ETag / If-Match** | HTTP headers that carry the task version in responses and the expected version in conditional writes. |
+| **Board summary** | Lightweight projection of a board (columns and task cards) used to render the Kanban view. |
+| **Cache-aside** | The application reads from the cache, and on a miss loads from the database and stores the result. |
+| **Pre-signed URL** | A time-limited URL signed by the server that lets the browser upload or download one object directly. |
+| **Transactional outbox** | Events are stored in the same database transaction as the data change and published later by a relay. |
+| **Dual-write problem** | Writing to a database and a broker separately, where one can succeed while the other fails. |
+| **At-least-once delivery** | Every message is delivered one or more times; consumers must be idempotent. |
+| **DLQ (dead-letter queue)** | A queue that holds messages that could not be processed after the allowed retries. |
+| **Effective board role** | The highest of a user's explicit board role and the implicit `ADMIN` role granted to workspace `OWNER`/`ADMIN`. |
+| **Correlation ID** | An identifier propagated through requests, logs and events to trace one operation across services. |
+
+---
+
+## 11. Change history
+
+| Version | Date | Author | Summary |
+|---|---|---|---|
+| 0.1.0 | 2026-10-13 | TS-008 | Initial draft from the Tech Spec template (section 5), ADR 001–003 and the C4 container diagram. |
