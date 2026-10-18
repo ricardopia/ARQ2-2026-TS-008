@@ -1,4 +1,4 @@
-# ARQ2-2026-TS-XXX: TaskMaster - Enterprise Kanban (Concurrency)
+# ARQ2-2026-TS-008: TaskMaster - Enterprise Kanban (Concurrency)
 
 Software Architecture II Project, Wave 1: Planning, Design, and Specification.
 
