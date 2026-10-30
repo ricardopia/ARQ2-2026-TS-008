@@ -85,26 +85,32 @@ services:
       retries: 5
       start_period: 20s
 
-  minio:
-    image: minio/minio:0-alpine3.24
-    container_name: taskmaster-minio
+  rustfs:
+    image: rustfs/rustfs:latest
+    container_name: taskmaster-rustfs
     restart: unless-stopped
-    command: server /data --console-address ":9001"
     environment:
-      MINIO_ROOT_USER: minio-taskmaster
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+      RUSTFS_ACCESS_KEY: ${RUSTFS_ACCESS_KEY}
+      RUSTFS_SECRET_KEY: ${RUSTFS_SECRET_KEY}
+      RUSTFS_ADDRESS: ":9000"
+      RUSTFS_CONSOLE_ADDRESS: ":9001"
+      RUSTFS_CONSOLE_ENABLE: "true"
+      RUSTFS_OBS_LOGGER_LEVEL: "error"
+      RUSTFS_OBS_LOG_DIRECTORY: "/var/log/rustfs/"
     ports:
       - "9000:9000"
       - "9001:9001"
     volumes:
-      - minio_data:/data
+      - rustfs_data:/data
+      - rustfs_logs:/var/log/rustfs
     networks:
       - taskmaster
     healthcheck:
-      test: ["CMD", "mc", "ready", "local"]
-      interval: 5s
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:9000/health || exit 1"]
+      interval: 15s
       timeout: 5s
       retries: 5
+      start_period: 20s
 
   jaeger:
     image: jaegertracing/all-in-one:1.76.0
@@ -178,7 +184,8 @@ volumes:
   postgres_data:
   redis_data:
   rabbitmq_data:
-  minio_data:
+  rustfs_data:
+  rustfs_logs:
   prometheus_data:
   grafana_data:
   loki_data:
