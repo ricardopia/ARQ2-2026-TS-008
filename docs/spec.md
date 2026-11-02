@@ -89,10 +89,10 @@ The service names below match the C4 container diagram.
 | **Web Application** | React | Kanban UI. Sends partial writes with `If-Match`, resolves `412` conflicts, uploads files directly to object storage, holds the WebSocket connection. | 001, 002, 003 |
 | **Load Balancer** | Nginx | TLS termination; distributes HTTPS and WSS traffic. | — |
 | **API Gateway** | Nginx | Single entry point: routing, session-token validation, rate limiting, request-body size limit (1 MiB), CORS, `X-Correlation-Id` injection, WebSocket proxying. | — |
-| **Core API** (2 replicas) | Node.js | Identity, workspaces, boards, tasks with optimistic concurrency, board summary (cached in Redis), attachment metadata and pre-signed URLs. Writes the outbox in the same transaction as the data change. Stateless. | 001, 002, 003 |
-| **Outbox Relay** | Node.js | Polls pending rows of `outbox_events` and publishes them reliably to RabbitMQ. | 003 |
-| **Realtime Service** | Node.js | Holds WebSocket connections, authorizes board subscriptions through Core API, consumes domain events and pushes them to authorized subscribers. | 003 |
-| **File Worker** | Node.js | Consumes file-processing jobs, validates files, generates previews for images, updates attachment status, cleans up abandoned uploads. | 002 |
+| **Core API** (2 replicas) | NestJS (Node.js) | Identity, workspaces, boards, tasks with optimistic concurrency, board summary (cached in Redis), attachment metadata and pre-signed URLs. Writes the outbox in the same transaction as the data change. Stateless. | 001, 002, 003 |
+| **Outbox Relay** | NestJS / Node.js | Polls pending rows of `outbox_events` and publishes them reliably to RabbitMQ. | 003 |
+| **Realtime Service** | NestJS (Node.js) | Holds WebSocket connections, authorizes board subscriptions through Core API, consumes domain events and pushes them to authorized subscribers. | 003 |
+| **File Worker** | NestJS / Node.js | Consumes file-processing jobs, validates files, generates previews for images, updates attachment status, cleans up abandoned uploads. | 002 |
 | **Message Broker** | RabbitMQ | Fan-out of domain events and the file-processing job queue, with retries and a dead-letter queue. | 002, 003 |
 | **Database** | PostgreSQL | Source of truth: users, memberships, roles, boards, tasks and their versions, attachment metadata, outbox events. | 001, 002, 003 |
 | **Cache** | Redis | Board-summary cache and one-time WebSocket tickets. Never a source of truth. | — |
