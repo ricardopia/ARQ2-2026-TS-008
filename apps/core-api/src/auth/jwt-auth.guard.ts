@@ -9,6 +9,7 @@ import { JwtService } from '@nestjs/jwt';
 import type { Request } from 'express';
 import { ProblemException } from '../common/problem';
 import type { AccessTokenClaims } from './auth.service';
+import { bearerToken } from './bearer-token';
 import { IS_PUBLIC_KEY } from './public.decorator';
 
 export type AuthenticatedRequest = Request & {
@@ -37,7 +38,7 @@ export class AuthGuard implements CanActivate {
     }
 
     const request = context.switchToHttp().getRequest<AuthenticatedRequest>();
-    const token = bearerToken(request.headers?.authorization);
+    const token = bearerToken(request.headers.authorization);
 
     if (!token) {
       throw new ProblemException(
@@ -60,16 +61,4 @@ export class AuthGuard implements CanActivate {
       );
     }
   }
-}
-
-function bearerToken(authorization: string | undefined): string | undefined {
-  if (!authorization) {
-    return undefined;
-  }
-  const [scheme, ...rest] = authorization.split(' ');
-  if (scheme?.toLowerCase() !== 'bearer' || rest.length === 0) {
-    return undefined;
-  }
-  const token = rest.join(' ').trim();
-  return token.length > 0 ? token : undefined;
 }
