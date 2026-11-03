@@ -24,7 +24,7 @@ services:
       INTERNAL_TOKEN: ${INTERNAL_TOKEN}
     volumes:
       - ./infrastructure/nginx/api-gateway/nginx.conf:/etc/nginx/nginx.conf:ro
-      - ./infrastructure/nginx/api-gateway/templates:/etc/nginx/templates:ro
+      - ./infrastructure/nginx/api-gateway/conf.d/routes.conf:/etc/nginx/templates/routes.conf.template:ro
     depends_on:
       - core-api
     networks:
