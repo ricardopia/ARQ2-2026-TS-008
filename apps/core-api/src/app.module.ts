@@ -6,6 +6,9 @@ import { AuthModule } from './auth/auth.module';
 import { AuthGuard } from './auth/jwt-auth.guard';
 import { User } from './users/user.entity';
 import { UsersModule } from './users/users.module';
+import { WorkspaceMember } from './workspaces/workspace-member.entity';
+import { Workspace } from './workspaces/workspace.entity';
+import { WorkspacesModule } from './workspaces/workspaces.module';
 
 @Module({
   imports: [
@@ -15,12 +18,13 @@ import { UsersModule } from './users/users.module';
       useFactory: (config: ConfigService) => ({
         type: 'postgres',
         url: config.getOrThrow<string>('DATABASE_URL'),
-        entities: [User],
+        entities: [User, Workspace, WorkspaceMember],
         synchronize: false,
       }),
     }),
     UsersModule,
     AuthModule,
+    WorkspacesModule,
   ],
   providers: [{ provide: APP_GUARD, useClass: AuthGuard }],
 })
