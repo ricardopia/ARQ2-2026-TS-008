@@ -9,6 +9,22 @@ import { Request, Response } from 'express';
 import { randomUUID } from 'node:crypto';
 import { ProblemBody, ProblemException } from './problem';
 
+/** Fallback code per HTTP status for plain `HttpException`s. */
+const STATUS_PROBLEMS: Record<number, { code: string; title: string }> = {
+  400: { code: 'VALIDATION_ERROR', title: 'Validation error' },
+  401: { code: 'UNAUTHENTICATED', title: 'Unauthenticated' },
+  403: { code: 'FORBIDDEN', title: 'Forbidden' },
+  404: { code: 'NOT_FOUND', title: 'Not found' },
+  409: { code: 'CONFLICT', title: 'Conflict' },
+  410: { code: 'GONE', title: 'Gone' },
+  412: { code: 'VERSION_CONFLICT', title: 'Version conflict' },
+  413: { code: 'PAYLOAD_TOO_LARGE', title: 'Payload too large' },
+  428: { code: 'PRECONDITION_REQUIRED', title: 'Precondition required' },
+  429: { code: 'RATE_LIMITED', title: 'Rate limited' },
+  503: { code: 'SERVICE_UNAVAILABLE', title: 'Service unavailable' },
+  504: { code: 'GATEWAY_TIMEOUT', title: 'Gateway timeout' },
+};
+
 @Catch()
 export class ProblemFilter implements ExceptionFilter {
   catch(exception: unknown, host: ArgumentsHost): void {
@@ -46,17 +62,16 @@ function toProblem(
 
   if (exception instanceof HttpException) {
     const status = exception.getStatus();
-    const detail = httpDetail(exception);
-    const code =
-      status === HttpStatus.BAD_REQUEST ? 'VALIDATION_ERROR' : 'INTERNAL_ERROR';
-    const title =
-      status === HttpStatus.BAD_REQUEST ? 'Validation error' : 'Internal error';
+    const fallback = STATUS_PROBLEMS[status] ?? {
+      code: 'INTERNAL_ERROR',
+      title: 'Internal error',
+    };
     return {
-      type: `/problems/${kebab(code)}`,
-      title,
+      type: `/problems/${kebab(fallback.code)}`,
+      title: fallback.title,
       status,
-      code,
-      detail,
+      code: fallback.code,
+      detail: httpDetail(exception),
       instance,
       correlationId,
     };
