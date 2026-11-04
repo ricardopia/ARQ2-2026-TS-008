@@ -7,6 +7,7 @@
 **/node_modules/
 **/dist/
 **/coverage/
+opencode.json
 
 .DS_Store
 Thumbs.db

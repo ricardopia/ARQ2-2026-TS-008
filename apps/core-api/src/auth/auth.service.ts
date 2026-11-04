@@ -3,7 +3,8 @@ import { JwtService } from '@nestjs/jwt';
 import { InjectRepository } from '@nestjs/typeorm';
 import * as argon2 from 'argon2';
 import { randomUUID } from 'node:crypto';
-import { QueryFailedError, Repository } from 'typeorm';
+import { Repository } from 'typeorm';
+import { isUniqueViolation } from '../common/pg-error';
 import { ProblemException } from '../common/problem';
 import { User } from '../users/user.entity';
 import { LoginDto } from './dto/login.dto';
@@ -117,12 +118,3 @@ function toPublicUser(user: User): PublicUser {
   };
 }
 
-function isUniqueViolation(error: unknown): boolean {
-  return (
-    error instanceof QueryFailedError &&
-    typeof error.driverError === 'object' &&
-    error.driverError !== null &&
-    'code' in error.driverError &&
-    error.driverError.code === '23505'
-  );
-}
