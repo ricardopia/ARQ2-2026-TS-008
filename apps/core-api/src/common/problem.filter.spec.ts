@@ -93,4 +93,24 @@ describe('ProblemFilter', () => {
     expect(response.statusCode).toBe(500);
     expect(problem.code).toBe('INTERNAL_ERROR');
   });
+
+  it('maps a database connection error to 503 SERVICE_UNAVAILABLE', () => {
+    const { problem, response } = run({
+      driverError: { code: 'ECONNREFUSED' },
+    } as never);
+
+    expect(response.statusCode).toBe(503);
+    expect(problem).toMatchObject({
+      status: 503,
+      code: 'SERVICE_UNAVAILABLE',
+      type: '/problems/service-unavailable',
+    });
+  });
+
+  it('maps a dns connection failure to 503 SERVICE_UNAVAILABLE', () => {
+    const { problem, response } = run({ code: 'EAI_AGAIN' } as never);
+
+    expect(response.statusCode).toBe(503);
+    expect(problem.code).toBe('SERVICE_UNAVAILABLE');
+  });
 });

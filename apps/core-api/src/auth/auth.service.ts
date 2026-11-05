@@ -50,13 +50,11 @@ export class AuthService {
     });
 
     try {
-      const user = await this.users.save(
-        this.users.create({
-          email: dto.email,
-          displayName: dto.displayName,
-          passwordHash,
-        }),
-      );
+      const user = await this.users.save({
+        email: dto.email,
+        displayName: dto.displayName,
+        passwordHash,
+      });
       return toPublicUser(user);
     } catch (error) {
       if (isUniqueViolation(error)) {

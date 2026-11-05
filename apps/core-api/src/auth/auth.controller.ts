@@ -8,6 +8,9 @@ import { Public } from './public.decorator';
 export class AuthController {
   constructor(private readonly authService: AuthService) {}
 
+  // Public routes must also get a matching location in the gateway config
+  // (infrastructure/nginx/api-gateway/conf.d/routes.conf); otherwise the
+  // gateway answers 401 before Core API ever sees the request.
   @Public()
   @Post('register')
   @HttpCode(HttpStatus.CREATED)

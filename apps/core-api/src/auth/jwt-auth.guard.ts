@@ -16,6 +16,15 @@ export type AuthenticatedRequest = Request & {
   user?: AccessTokenClaims;
 };
 
+export function unauthenticated(detail: string): ProblemException {
+  return new ProblemException(
+    HttpStatus.UNAUTHORIZED,
+    'UNAUTHENTICATED',
+    'Unauthenticated',
+    detail,
+  );
+}
+
 /**
  * Global guard implementing FR-1.1 inside Core API: every endpoint requires a
  * valid, unexpired bearer token except the ones marked with `@Public()`.
@@ -41,24 +50,14 @@ export class AuthGuard implements CanActivate {
     const token = bearerToken(request.headers.authorization);
 
     if (!token) {
-      throw new ProblemException(
-        HttpStatus.UNAUTHORIZED,
-        'UNAUTHENTICATED',
-        'Unauthenticated',
-        'A valid access token is required.',
-      );
+      throw unauthenticated('A valid access token is required.');
     }
 
     try {
       request.user = await this.jwt.verifyAsync<AccessTokenClaims>(token);
       return true;
     } catch {
-      throw new ProblemException(
-        HttpStatus.UNAUTHORIZED,
-        'UNAUTHENTICATED',
-        'Unauthenticated',
-        'The access token is invalid or expired.',
-      );
+      throw unauthenticated('The access token is invalid or expired.');
     }
   }
 }

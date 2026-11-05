@@ -30,14 +30,13 @@ const alice: User = {
 describe('AuthService', () => {
   let service: AuthService;
   let jwt: JwtService;
-  let users: { findOneBy: jest.Mock; save: jest.Mock; create: jest.Mock };
+  let users: { findOneBy: jest.Mock; save: jest.Mock };
 
   beforeEach(async () => {
     jest.clearAllMocks();
     users = {
       findOneBy: jest.fn(),
       save: jest.fn(),
-      create: jest.fn((data: Partial<User>) => data as User),
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -71,7 +70,7 @@ describe('AuthService', () => {
       expect(hashMock).toHaveBeenCalledWith('correct-horse-battery', {
         type: 2,
       });
-      expect(users.create).toHaveBeenCalledWith({
+      expect(users.save).toHaveBeenCalledWith({
         email: 'alice@acme.test',
         displayName: 'Alice',
         passwordHash: '$argon2id$hashed',
@@ -136,6 +135,7 @@ describe('AuthService', () => {
       expect(typeof claims.iat).toBe('number');
       expect(typeof claims.exp).toBe('number');
       expect(claims.exp - claims.iat).toBe(ACCESS_TOKEN_TTL_SECONDS);
+      expect(Object.keys(claims).sort()).toEqual(['email', 'exp', 'iat', 'sub']);
     });
 
     it('rejects a wrong password with 401 INVALID_CREDENTIALS and issues no token', async () => {

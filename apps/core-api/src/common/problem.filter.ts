@@ -77,6 +77,20 @@ function toProblem(
     };
   }
 
+  // A required dependency (PostgreSQL) being down is a service problem, not a
+  // bug: the spec asks for 503 SERVICE_UNAVAILABLE (spec edge cases).
+  if (isConnectionError(exception)) {
+    return {
+      type: '/problems/service-unavailable',
+      title: 'Service unavailable',
+      status: HttpStatus.SERVICE_UNAVAILABLE,
+      code: 'SERVICE_UNAVAILABLE',
+      detail: 'A required dependency is down.',
+      instance,
+      correlationId,
+    };
+  }
+
   return {
     type: '/problems/internal-error',
     title: 'Internal error',
@@ -109,4 +123,28 @@ function headerValue(value: string | string[] | undefined): string | undefined {
 
 function kebab(code: string): string {
   return code.toLowerCase().replaceAll('_', '-');
+}
+
+/** True when the error is a failed connection to a required dependency. */
+function isConnectionError(error: unknown): boolean {
+  const driverError = (
+    error as { driverError?: unknown } | null | undefined
+  )?.driverError;
+  let code: string | undefined;
+  if (
+    typeof driverError === 'object' &&
+    driverError !== null &&
+    'code' in driverError
+  ) {
+    code = (driverError as { code: string }).code;
+  } else {
+    code = (error as { code?: string } | null | undefined)?.code;
+  }
+  return (
+    code === 'ECONNREFUSED' ||
+    code === 'ETIMEDOUT' ||
+    code === 'ENOTFOUND' ||
+    code === 'EAI_AGAIN' ||
+    code === 'EAI_FAIL'
+  );
 }

@@ -10,6 +10,8 @@ import { JwtService } from '@nestjs/jwt';
 import { ProblemException } from '../common/problem';
 import { bearerToken } from './bearer-token';
 import { Public } from './public.decorator';
+import { unauthenticated } from './jwt-auth.guard';
+import { timingSafeEqual } from 'node:crypto';
 
 /**
  * Internal endpoints called by other containers, never routed by the API
@@ -38,8 +40,12 @@ export class InternalAuthController {
     @Headers('x-internal-token') presentedToken: string | undefined,
     @Headers('authorization') authorization: string | undefined,
   ): void {
-    // Do not reveal the endpoint to callers without the shared secret.
-    if (!presentedToken || presentedToken !== this.internalToken) {
+    // Do not reveal the endpoint to callers without the shared secret. The
+    // compare is constant-time (same length first) to avoid leaking bytes.
+    if (
+      !presentedToken ||
+      !timingSafeEqualStr(presentedToken, this.internalToken)
+    ) {
       throw new ProblemException(
         HttpStatus.NOT_FOUND,
         'NOT_FOUND',
@@ -50,22 +56,22 @@ export class InternalAuthController {
 
     const token = bearerToken(authorization);
     if (!token) {
-      throw unauthenticated();
+      throw unauthenticated('A valid access token is required.');
     }
 
     try {
       this.jwt.verify(token);
     } catch {
-      throw unauthenticated();
+      throw unauthenticated('The access token is invalid or expired.');
     }
   }
 }
 
-function unauthenticated(): ProblemException {
-  return new ProblemException(
-    HttpStatus.UNAUTHORIZED,
-    'UNAUTHENTICATED',
-    'Unauthenticated',
-    'A valid access token is required.',
-  );
+function timingSafeEqualStr(a: string, b: string): boolean {
+  const bufA = Buffer.from(a);
+  const bufB = Buffer.from(b);
+  if (bufA.length !== bufB.length) {
+    return false;
+  }
+  return timingSafeEqual(bufA, bufB);
 }

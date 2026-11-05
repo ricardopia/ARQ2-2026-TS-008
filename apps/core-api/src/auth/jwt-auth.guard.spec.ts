@@ -88,6 +88,31 @@ describe('AuthGuard over HTTP', () => {
     expect(authService.register).toHaveBeenCalled();
   });
 
+  it('rejects a short password on register with 400 VALIDATION_ERROR', async () => {
+    const response = await request(server)
+      .post('/auth/register')
+      .send({ email: 'alice@acme.test', password: 'short', displayName: 'Alice' });
+
+    expect(response.status).toBe(400);
+    expect(response.body.code).toBe('VALIDATION_ERROR');
+    expect(authService.register).not.toHaveBeenCalled();
+  });
+
+  it('rejects an unknown field on register with 400 VALIDATION_ERROR', async () => {
+    const response = await request(server)
+      .post('/auth/register')
+      .send({
+        email: 'alice@acme.test',
+        password: 'correct-horse-battery',
+        displayName: 'Alice',
+        extra: 1,
+      });
+
+    expect(response.status).toBe(400);
+    expect(response.body.code).toBe('VALIDATION_ERROR');
+    expect(authService.register).not.toHaveBeenCalled();
+  });
+
   it('rejects a protected request without a token with 401 UNAUTHENTICATED', async () => {
     const response = await request(server).get('/probe');
 
