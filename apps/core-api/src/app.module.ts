@@ -12,6 +12,7 @@ import { WorkspacesModule } from './workspaces/workspaces.module';
 import { Board } from './boards/board.entity';
 import { BoardMember } from './boards/board-member.entity';
 import { BoardColumn } from './boards/board-column.entity';
+import { Task } from './tasks/task.entity';
 import { BoardsModule } from './boards/boards.module';
 
 @Module({
@@ -22,7 +23,7 @@ import { BoardsModule } from './boards/boards.module';
       useFactory: (config: ConfigService) => ({
         type: 'postgres',
         url: config.getOrThrow<string>('DATABASE_URL'),
-        entities: [User, Workspace, WorkspaceMember, Board, BoardMember, BoardColumn],
+        entities: [User, Workspace, WorkspaceMember, Board, BoardMember, BoardColumn, Task],
         synchronize: false,
       }),
     }),
