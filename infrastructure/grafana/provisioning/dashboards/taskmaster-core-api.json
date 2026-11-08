@@ -39,7 +39,7 @@
       },
       "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
       "id": 2,
-      "options": { "legend": { displayMode: "list", placement: "bottom" }, "tooltip": { mode: "multi" } },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi" } },
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
@@ -61,7 +61,7 @@
       },
       "gridPos": { "h": 8, "w": 24, "x": 0, "y": 8 },
       "id": 3,
-      "options": { "legend": { displayMode: "list", placement: "bottom" }, "tooltip": { mode: "multi" } },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi" } },
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },

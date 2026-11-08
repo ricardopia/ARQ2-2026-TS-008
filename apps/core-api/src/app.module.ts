@@ -39,6 +39,7 @@ import { JsonLogger } from './observability/json-logger';
   controllers: [MetricsController],
   providers: [
     MetricsService,
+    { provide: JsonLogger, useFactory: () => new JsonLogger() },
     { provide: APP_GUARD, useClass: AuthGuard },
   ],
 })

@@ -223,11 +223,16 @@ services:
     container_name: taskmaster-alloy
     restart: unless-stopped
     command:
-      - server
-      - --config.file=/etc/alloy/config.alloy
+      - run
+      - --server.http.listen-addr=0.0.0.0:12345
+      - --storage.path=/var/lib/alloy/data
+      - /etc/alloy/config.alloy
+    ports:
+      - "12345:12345"
     volumes:
       - ./infrastructure/loki/alloy-config.alloy:/etc/alloy/config.alloy:ro
       - /var/run/docker.sock:/var/run/docker.sock
+      - alloy_data:/var/lib/alloy/data
     depends_on:
       - loki
     networks:
@@ -247,3 +252,4 @@ volumes:
   prometheus_data:
   grafana_data:
   loki_data:
+  alloy_data:

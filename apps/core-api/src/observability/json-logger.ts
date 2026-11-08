@@ -1,4 +1,4 @@
-import { LoggerService } from '@nestjs/common';
+import { Injectable, LoggerService } from '@nestjs/common';
 
 export type JsonLogEntry = {
   timestamp: string;
@@ -12,6 +12,7 @@ export type JsonLogEntry = {
  * JSON-lines logger (spec section 6, NFR-6): one JSON object per line on
  * stdout, ready for Loki ingestion.
  */
+@Injectable()
 export class JsonLogger implements LoggerService {
   private readonly context: string;
   private correlationId?: string;
