@@ -218,6 +218,22 @@ services:
     networks:
       - taskmaster
 
+  promtail:
+    image: prom/promtail:latest
+    container_name: taskmaster-promtail
+    restart: unless-stopped
+    command:
+      - "--config.file=/etc/promtail/promtail.yml"
+    ports:
+      - "9080:9080"
+    volumes:
+      - ./infrastructure/loki/promtail-config.yml:/etc/promtail/promtail.yml:ro
+      - /var/lib/promtail:/tmp
+    depends_on:
+      - loki
+    networks:
+      - taskmaster
+
 networks:
   taskmaster:
     name: taskmaster-network

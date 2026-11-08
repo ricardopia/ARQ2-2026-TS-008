@@ -1,0 +1,11 @@
+apiVersion: 1
+
+providers:
+  - name: TaskMaster
+    orgId: 1
+    folder: TaskMaster
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 30
+    options:
+      path: /etc/grafana/provisioning/dashboards

@@ -6,6 +6,7 @@ datasources:
     access: proxy
     url: http://prometheus:9090
     isDefault: true
+    uid: prometheus
 
   - name: Loki
     type: loki

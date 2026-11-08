@@ -12,3 +12,8 @@ scrape_configs:
     static_configs:
       - targets:
           - outbox-relay:8081
+
+  - job_name: core-api
+    static_configs:
+      - targets:
+          - core-api:8080

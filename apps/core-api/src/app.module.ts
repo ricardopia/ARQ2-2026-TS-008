@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { APP_GUARD } from '@nestjs/core';
 import { TypeOrmModule } from '@nestjs/typeorm';
@@ -14,6 +14,10 @@ import { BoardMember } from './boards/board-member.entity';
 import { BoardColumn } from './boards/board-column.entity';
 import { Task } from './tasks/task.entity';
 import { BoardsModule } from './boards/boards.module';
+import { MetricsController } from './observability/metrics.controller';
+import { MetricsService } from './observability/metrics.service';
+import { ObservabilityMiddleware } from './observability/http-middleware';
+import { JsonLogger } from './observability/json-logger';
 
 @Module({
   imports: [
@@ -32,6 +36,14 @@ import { BoardsModule } from './boards/boards.module';
     WorkspacesModule,
     BoardsModule,
   ],
-  providers: [{ provide: APP_GUARD, useClass: AuthGuard }],
+  controllers: [MetricsController],
+  providers: [
+    MetricsService,
+    { provide: APP_GUARD, useClass: AuthGuard },
+  ],
 })
-export class AppModule {}
+export class AppModule implements NestModule {
+  configure(consumer: MiddlewareConsumer) {
+    consumer.apply(ObservabilityMiddleware).forRoutes('*');
+  }
+}
