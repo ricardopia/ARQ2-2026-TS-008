@@ -48,6 +48,26 @@ services:
     networks:
       - taskmaster
 
+  outbox-relay:
+    build:
+      context: ./apps/outbox-relay
+    container_name: taskmaster-outbox-relay
+    restart: unless-stopped
+    expose:
+      - "8081"
+    environment:
+      PORT: 8081
+      DATABASE_URL: postgres://taskmaster:${POSTGRES_PASSWORD}@postgres:5432/taskmaster
+      RABBITMQ_URL: amqp://rabbit-taskmaster:${RABBITMQ_PASSWORD}@rabbitmq:5672
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4318
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - taskmaster
+
   postgres:
     image: postgres:17-alpine
     container_name: taskmaster-postgres
