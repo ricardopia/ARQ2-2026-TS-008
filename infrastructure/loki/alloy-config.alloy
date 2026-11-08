@@ -1,0 +1,41 @@
+// Grafana Alloy: tail logs from all Docker containers and push them to Loki.
+discovery.docker "taskmaster" {
+  host = "unix:///var/run/docker.sock"
+}
+
+loki.source.docker "taskmaster" {
+  host          = "unix:///var/run/docker.sock"
+  targets       = discovery.docker.taskmaster.targets
+  labels        = { app = "taskmaster" }
+  forward_to   = [loki.write.taskmaster.receiver]
+  relabel_rules = discovery.relabel.taskmaster.rules
+}
+
+discovery.relabel "taskmaster" {
+  targets = []
+
+  rule {
+    source_labels = ["__meta_docker_container_name"]
+    regex         = "/(.*)"
+    target_label  = "container"
+  }
+}
+
+loki.process "taskmaster" {
+  stage.static_labels {
+    values = {
+      env = "development",
+    }
+  }
+  forward_to = [loki.write.taskmaster.receiver]
+}
+
+loki.write "taskmaster" {
+  endpoint {
+    url = "http://loki:3100/loki/api/v1/push"
+  }
+}
+
+livedebugging {
+  enabled = true
+}

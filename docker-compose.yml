@@ -218,17 +218,16 @@ services:
     networks:
       - taskmaster
 
-  promtail:
-    image: prom/promtail:latest
-    container_name: taskmaster-promtail
+  alloy:
+    image: grafana/alloy:latest
+    container_name: taskmaster-alloy
     restart: unless-stopped
     command:
-      - "--config.file=/etc/promtail/promtail.yml"
-    ports:
-      - "9080:9080"
+      - server
+      - --config.file=/etc/alloy/config.alloy
     volumes:
-      - ./infrastructure/loki/promtail-config.yml:/etc/promtail/promtail.yml:ro
-      - /var/lib/promtail:/tmp
+      - ./infrastructure/loki/alloy-config.alloy:/etc/alloy/config.alloy:ro
+      - /var/run/docker.sock:/var/run/docker.sock
     depends_on:
       - loki
     networks:
