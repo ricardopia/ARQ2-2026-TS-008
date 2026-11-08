@@ -14,7 +14,7 @@ scrape_configs:
           - outbox-relay:8081
 
   - job_name: core-api
+    metrics_path: /api/v1/metrics
     static_configs:
       - targets:
           - core-api:8080
-        metrics_path: /api/v1/metrics
