@@ -21,7 +21,7 @@ export class Task {
   assigneeIds: string[];
 
   @Column({ name: 'due_date', type: 'date' })
-  dueDate: Date;
+  dueDate: Date | null;
 
   @Column({ type: 'bigint' })
   position: number;

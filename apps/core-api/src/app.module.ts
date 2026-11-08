@@ -14,6 +14,7 @@ import { BoardMember } from './boards/board-member.entity';
 import { BoardColumn } from './boards/board-column.entity';
 import { Task } from './tasks/task.entity';
 import { BoardsModule } from './boards/boards.module';
+import { TasksModule } from './tasks/tasks.module';
 import { MetricsController } from './observability/metrics.controller';
 import { MetricsService } from './observability/metrics.service';
 import { ObservabilityMiddleware } from './observability/http-middleware';
@@ -35,6 +36,7 @@ import { JsonLogger } from './observability/json-logger';
     AuthModule,
     WorkspacesModule,
     BoardsModule,
+    TasksModule,
   ],
   controllers: [MetricsController],
   providers: [
