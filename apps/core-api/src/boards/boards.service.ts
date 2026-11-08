@@ -54,6 +54,12 @@ export type BoardMemberView = {
   role: BoardRole;
 };
 
+export type BoardAccess = {
+  boardId: string;
+  userId: string;
+  role: BoardRole;
+};
+
 export type BoardSummary = {
   board: BoardSummaryBoard;
   columns: {
@@ -333,5 +339,17 @@ export class BoardsService {
       displayName: user.displayName,
       role: dto.role,
     };
+  }
+
+  /**
+   * Effective access for an internal caller (realtime subscriptions): the
+   * effective board role, or null when the user has none (spec section 3.5).
+   */
+  async getAccess(boardId: string, userId: string): Promise<BoardAccess | null> {
+    const role = await this.getBoardRole(boardId, userId);
+    if (!role) {
+      return null;
+    }
+    return { boardId, userId, role };
   }
 }
