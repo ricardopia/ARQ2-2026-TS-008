@@ -1,11 +1,14 @@
 import { HttpStatus, Injectable } from '@nestjs/common';
 import { DataSource } from 'typeorm';
+import { isUniqueViolation } from '../common/pg-error';
 import { ProblemException } from '../common/problem';
+import { User } from '../users/user.entity';
 import { WorkspacesService } from '../workspaces/workspaces.service';
 import { Board } from './board.entity';
 import { BoardColumn } from './board-column.entity';
 import { BoardMember, type BoardRole } from './board-member.entity';
 import { CreateBoardDto } from './dto/create-board.dto';
+import { AddBoardMemberDto } from './dto/add-board-member.dto';
 import { Task } from '../tasks/task.entity';
 
 export type BoardColumnView = {
@@ -42,6 +45,13 @@ export type BoardSummaryBoard = {
   description: string | null;
   myRole: BoardRole;
   createdAt: Date;
+};
+
+export type BoardMemberView = {
+  userId: string;
+  email: string;
+  displayName: string;
+  role: BoardRole;
 };
 
 export type BoardSummary = {
@@ -219,6 +229,109 @@ export class BoardsService {
         tasks: tasksByColumn.get(column.id) ?? [],
       })),
       generatedAt: new Date(),
+    };
+  }
+
+  /**
+   * Grants a workspace member a board role (FR-1.4): the caller must be a
+   * board ADMIN. The user must already be a workspace member of the board's
+   * workspace; repeat grants hit the (board_id, user_id) primary key.
+   */
+  async addBoardMember(
+    boardId: string,
+    actorId: string,
+    dto: AddBoardMemberDto,
+  ): Promise<BoardMemberView> {
+    // A malformed id must look exactly like a missing one, never a 500.
+    if (!UUID_RE.test(boardId)) {
+      throw new ProblemException(
+        HttpStatus.NOT_FOUND,
+        'NOT_FOUND',
+        'Not found',
+        'The requested resource does not exist.',
+      );
+    }
+
+    const board = await this.dataSource
+      .getRepository(Board)
+      .findOneBy({ id: boardId });
+    if (!board) {
+      throw new ProblemException(
+        HttpStatus.NOT_FOUND,
+        'NOT_FOUND',
+        'Not found',
+        'The requested resource does not exist.',
+      );
+    }
+
+    const role = await this.getBoardRole(boardId, actorId);
+    if (!role) {
+      throw new ProblemException(
+        HttpStatus.NOT_FOUND,
+        'NOT_FOUND',
+        'Not found',
+        'The requested resource does not exist.',
+      );
+    }
+    if (role !== 'ADMIN') {
+      throw new ProblemException(
+        HttpStatus.FORBIDDEN,
+        'FORBIDDEN',
+        'Forbidden',
+        'You do not have permission to perform this action.',
+      );
+    }
+
+    const user = await this.dataSource
+      .getRepository(User)
+      .findOneBy({ id: dto.userId });
+    if (!user) {
+      throw new ProblemException(
+        HttpStatus.NOT_FOUND,
+        'USER_NOT_FOUND',
+        'User not found',
+        'No user with that id exists.',
+      );
+    }
+
+    const workspaceRole = await this.workspaces.getMemberRole(
+      board.workspaceId,
+      user.id,
+    );
+    if (!workspaceRole) {
+      throw new ProblemException(
+        HttpStatus.CONFLICT,
+        'NOT_WORKSPACE_MEMBER',
+        'Not a workspace member',
+        'The user must be a member of the workspace before a board role can be granted.',
+      );
+    }
+
+    try {
+      // insert() (unlike save()) always INSERTs, so the (board_id, user_id)
+      // primary key turns a repeat grant into 23505 instead of a silent UPDATE.
+      await this.dataSource.getRepository(BoardMember).insert({
+        boardId: board.id,
+        userId: user.id,
+        role: dto.role,
+      });
+    } catch (error) {
+      if (isUniqueViolation(error)) {
+        throw new ProblemException(
+          HttpStatus.CONFLICT,
+          'ALREADY_MEMBER',
+          'Already a member',
+          'The user already has a role on this board.',
+        );
+      }
+      throw error;
+    }
+
+    return {
+      userId: user.id,
+      email: user.email,
+      displayName: user.displayName,
+      role: dto.role,
     };
   }
 }
