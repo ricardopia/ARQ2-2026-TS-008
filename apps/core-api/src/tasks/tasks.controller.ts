@@ -1,5 +1,6 @@
 import { Body, Controller, Get, Headers, HttpCode, HttpStatus, Param, Patch, Res } from '@nestjs/common';
 import type { Response } from 'express';
+import { randomUUID } from 'node:crypto';
 import { CurrentUser, type AccessTokenClaims } from '../auth';
 import { ProblemException } from '../common/problem';
 import { TasksService } from './tasks.service';
@@ -28,6 +29,7 @@ export class TasksController {
     @Headers('if-match') ifMatch: string,
     @Body() dto: UpdateTaskDto,
     @Res({ passthrough: true }) res: Response,
+    @Headers('x-correlation-id') correlationId: string | undefined,
   ) {
     if (!ifMatch) {
       throw new ProblemException(
@@ -58,7 +60,13 @@ export class TasksController {
         'At least one task field must be provided.',
       );
     }
-    const task = await this.tasks.update(taskId, user.sub, dto, ifMatch);
+    const task = await this.tasks.update(
+      taskId,
+      user.sub,
+      dto,
+      ifMatch,
+      correlationId ?? randomUUID(),
+    );
     res.setHeader('ETag', `"${task.version}"`);
     return task;
   }
@@ -70,6 +78,7 @@ export class TasksController {
     @Headers('if-match') ifMatch: string,
     @Body() dto: MoveTaskDto,
     @Res({ passthrough: true }) res: Response,
+    @Headers('x-correlation-id') correlationId: string | undefined,
   ) {
     if (!ifMatch) {
       throw new ProblemException(
@@ -87,7 +96,7 @@ export class TasksController {
         'If-Match must be a single strong ETag such as "7".',
       );
     }
-    const task = await this.tasks.move(taskId, user.sub, dto.columnId, ifMatch);
+    const task = await this.tasks.move(taskId, user.sub, dto.columnId, ifMatch, correlationId ?? randomUUID());
     res.setHeader('ETag', `"${task.version}"`);
     return task;
   }

@@ -1,5 +1,6 @@
 import { Body, Controller, Headers, HttpCode, HttpStatus, Param, Post, Res } from '@nestjs/common';
 import type { Response } from 'express';
+import { randomUUID } from 'node:crypto';
 import { CurrentUser, type AccessTokenClaims } from '../auth';
 import { ProblemException } from '../common/problem';
 import { TasksService } from './tasks.service';
@@ -16,8 +17,9 @@ export class CreateTaskController {
     @CurrentUser() user: AccessTokenClaims,
     @Body() dto: CreateTaskDto,
     @Res({ passthrough: true }) res: Response,
+    @Headers('x-correlation-id') correlationId: string | undefined,
   ) {
-    const task = await this.tasks.create(boardId, user.sub, dto);
+    const task = await this.tasks.create(boardId, user.sub, dto, correlationId ?? randomUUID());
     res.setHeader('ETag', '"1"');
     return task;
   }

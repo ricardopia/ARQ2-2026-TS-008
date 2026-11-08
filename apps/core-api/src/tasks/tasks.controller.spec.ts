@@ -161,9 +161,13 @@ describe('tasks api', () => {
       expect(response.status).toBe(200);
       expect(response.body.version).toBe(8);
       expect(response.headers.etag).toBe('"8"');
-      expect(tasksService.update).toHaveBeenCalledWith(TASK_ID, ALICE, {
-        title: 'New title',
-      }, '"7"');
+      expect(tasksService.update).toHaveBeenCalledWith(
+        TASK_ID,
+        ALICE,
+        { title: 'New title' },
+        '"7"',
+        expect.any(String),
+      );
     });
 
     it('answers 412 VERSION_CONFLICT when the version no longer matches', async () => {
@@ -205,7 +209,13 @@ describe('tasks api', () => {
       expect(response.status).toBe(200);
       expect(response.body.version).toBe(7);
       expect(response.headers.etag).toBe('"7"');
-      expect(tasksService.move).toHaveBeenCalledWith(TASK_ID, ALICE, task.columnId, '"7"');
+      expect(tasksService.move).toHaveBeenCalledWith(
+        TASK_ID,
+        ALICE,
+        task.columnId,
+        '"7"',
+        expect.any(String),
+      );
     });
 
     it('answers 400 VALIDATION_ERROR when the move body misses columnId', async () => {
@@ -231,10 +241,12 @@ describe('tasks api', () => {
       expect(response.status).toBe(201);
       expect(response.body.id).toBe(TASK_ID);
       expect(response.headers.etag).toBe('"1"');
-      expect(tasksService.create).toHaveBeenCalledWith(BOARD_ID, ALICE, {
-        columnId: task.columnId,
-        title: 'Login page',
-      });
+      expect(tasksService.create).toHaveBeenCalledWith(
+        BOARD_ID,
+        ALICE,
+        { columnId: task.columnId, title: 'Login page' },
+        expect.any(String),
+      );
     });
 
     it('answers 400 VALIDATION_ERROR when the create body misses the title', async () => {

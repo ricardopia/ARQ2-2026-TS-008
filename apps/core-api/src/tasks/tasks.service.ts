@@ -1,5 +1,6 @@
 import { HttpStatus, Injectable } from '@nestjs/common';
-import { DataSource } from 'typeorm';
+import { DataSource, EntityManager } from 'typeorm';
+import { randomUUID } from 'node:crypto';
 import { ProblemException } from '../common/problem';
 import { Board } from '../boards/board.entity';
 import { BoardColumn } from '../boards/board-column.entity';
@@ -59,7 +60,12 @@ export class TasksService {
   }
 
   /** Task creation: board EDITOR or ADMIN (FR-1.2). */
-  async create(boardId: string, actorId: string, dto: CreateTaskDto) {
+  async create(
+    boardId: string,
+    actorId: string,
+    dto: CreateTaskDto,
+    correlationId: string,
+  ) {
     const board = await this.dataSource.getRepository(Board).findOne({
       where: { id: boardId },
     });
@@ -143,6 +149,15 @@ export class TasksService {
         updatedBy: actorId,
       });
       const saved = await repo.save(taskToCreate);
+      // Outbox in the same transaction as the change (FR-5.1, ADR 003).
+      await this.emitTaskEvent(manager, {
+        eventType: 'task.created',
+        task: saved,
+        board,
+        actorId,
+        correlationId,
+        data: { task: this.taskCard(saved) },
+      });
       return saved;
     });
 
@@ -150,7 +165,13 @@ export class TasksService {
   }
 
   /** Task update: conditional on the version the client last saw (ADR 001). */
-  async update(taskId: string, actorId: string, dto: UpdateTaskDto, ifMatch: string) {
+  async update(
+    taskId: string,
+    actorId: string,
+    dto: UpdateTaskDto,
+    ifMatch: string,
+    correlationId: string,
+  ) {
     const task = await this.dataSource.getRepository(Task).findOne({
       where: { id: taskId },
     });
@@ -213,6 +234,18 @@ export class TasksService {
       changes.dueDate = dto.dueDate ? new Date(dto.dueDate) : null;
     }
 
+    const board = await this.dataSource
+      .getRepository(Board)
+      .findOneBy({ id: task.boardId });
+    if (!board) {
+      throw new ProblemException(
+        HttpStatus.NOT_FOUND,
+        'NOT_FOUND',
+        'Not found',
+        'The requested resource does not exist.',
+      );
+    }
+
     const updated = await this.dataSource.transaction(async (manager) => {
       const result = await manager.update(
         Task,
@@ -227,7 +260,27 @@ export class TasksService {
           'The task was modified by another user. Review the current state and retry.',
         );
       }
-      return manager.findOne(Task, { where: { id: taskId } });
+      const updatedTask = await manager.findOne(Task, { where: { id: taskId } });
+      if (!updatedTask) {
+        throw new ProblemException(
+          HttpStatus.NOT_FOUND,
+          'NOT_FOUND',
+          'Not found',
+          'The requested resource does not exist.',
+        );
+      }
+      await this.emitTaskEvent(manager, {
+        eventType: 'task.updated',
+        task: updatedTask,
+        board,
+        actorId,
+        correlationId,
+        data: {
+          changedFields: Object.keys(changes),
+          task: this.taskCard(updatedTask),
+        },
+      });
+      return updatedTask;
     });
 
     if (!updated) {
@@ -242,7 +295,13 @@ export class TasksService {
   }
 
   /** Task move: conditional on the version the client last saw (ADR 001). */
-  async move(taskId: string, actorId: string, columnId: string, ifMatch: string) {
+  async move(
+    taskId: string,
+    actorId: string,
+    columnId: string,
+    ifMatch: string,
+    correlationId: string,
+  ) {
     const task = await this.dataSource.getRepository(Task).findOne({
       where: { id: taskId },
     });
@@ -295,6 +354,18 @@ export class TasksService {
     const position =
       columnTasks.reduce((max, candidate) => Math.max(max, Number(candidate.position)), 0) + 1;
 
+    const board = await this.dataSource
+      .getRepository(Board)
+      .findOneBy({ id: task.boardId });
+    if (!board) {
+      throw new ProblemException(
+        HttpStatus.NOT_FOUND,
+        'NOT_FOUND',
+        'Not found',
+        'The requested resource does not exist.',
+      );
+    }
+
     const updated = await this.dataSource.transaction(async (manager) => {
       const result = await manager.update(
         Task,
@@ -309,7 +380,24 @@ export class TasksService {
           'The task was modified by another user. Review the current state and retry.',
         );
       }
-      return manager.findOne(Task, { where: { id: taskId } });
+      const movedTask = await manager.findOne(Task, { where: { id: taskId } });
+      if (!movedTask) {
+        throw new ProblemException(
+          HttpStatus.NOT_FOUND,
+          'NOT_FOUND',
+          'Not found',
+          'The requested resource does not exist.',
+        );
+      }
+      await this.emitTaskEvent(manager, {
+        eventType: 'task.moved',
+        task: movedTask,
+        board,
+        actorId,
+        correlationId,
+        data: { fromColumnId: task.columnId, toColumnId: columnId, task: this.taskCard(movedTask) },
+      });
+      return movedTask;
     });
 
     if (!updated) {
@@ -321,6 +409,52 @@ export class TasksService {
       );
     }
     return this.toDetail(updated);
+  }
+
+  private async emitTaskEvent(
+    manager: EntityManager,
+    event: {
+      eventType: 'task.created' | 'task.updated' | 'task.moved';
+      task: Task;
+      board: Board;
+      actorId: string;
+      correlationId: string;
+      data: Record<string, unknown>;
+    },
+  ): Promise<void> {
+    const eventId = randomUUID();
+    const payload = {
+      eventId,
+      eventType: event.eventType,
+      eventVersion: 1,
+      occurredAt: new Date().toISOString(),
+      producer: 'core-api',
+      correlationId: event.correlationId,
+      actorId: event.actorId,
+      workspaceId: event.board.workspaceId,
+      boardId: event.task.boardId,
+      aggregate: { type: 'task', id: event.task.id, version: event.task.version },
+      data: event.data,
+    };
+    // Written in the same transaction as the task change (FR-5.1, ADR 003).
+    await manager.query(
+      `INSERT INTO outbox_events (event_id, exchange, routing_key, payload)
+       VALUES ($1, $2, $3, $4)`,
+      [eventId, 'taskmaster.domain-events', event.eventType, JSON.stringify(payload)],
+    );
+  }
+
+  private taskCard(task: Task) {
+    return {
+      id: task.id,
+      columnId: task.columnId,
+      title: task.title,
+      assigneeIds: task.assigneeIds ?? [],
+      dueDate: task.dueDate ? task.dueDate.toISOString().slice(0, 10) : null,
+      position: Number(task.position),
+      version: task.version,
+      updatedAt: task.updatedAt,
+    };
   }
 
   private toDetail(task: Task) {
