@@ -13,9 +13,11 @@ import { Board } from './boards/board.entity';
 import { BoardMember } from './boards/board-member.entity';
 import { BoardColumn } from './boards/board-column.entity';
 import { Task } from './tasks/task.entity';
+import { Attachment } from './attachments/attachment.entity';
 import { BoardsModule } from './boards/boards.module';
 import { TasksModule } from './tasks/tasks.module';
 import { RealtimeModule } from './realtime/realtime.module';
+import { AttachmentsModule } from './attachments/attachments.module';
 import { MetricsController } from './observability/metrics.controller';
 import { MetricsService } from './observability/metrics.service';
 import { ObservabilityMiddleware } from './observability/http-middleware';
@@ -29,7 +31,7 @@ import { JsonLogger } from './observability/json-logger';
       useFactory: (config: ConfigService) => ({
         type: 'postgres',
         url: config.getOrThrow<string>('DATABASE_URL'),
-        entities: [User, Workspace, WorkspaceMember, Board, BoardMember, BoardColumn, Task],
+        entities: [User, Workspace, WorkspaceMember, Board, BoardMember, BoardColumn, Task, Attachment],
         synchronize: false,
       }),
     }),
@@ -39,6 +41,7 @@ import { JsonLogger } from './observability/json-logger';
     BoardsModule,
     TasksModule,
     RealtimeModule,
+    AttachmentsModule,
   ],
   controllers: [MetricsController],
   providers: [
