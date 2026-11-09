@@ -18,28 +18,28 @@ export class Attachment {
   @Column({ name: 'uploaded_by', type: 'uuid' })
   uploadedBy: string;
 
-  @Column({ type: 'varchar', length: 255 })
+  @Column({ name: 'file_name', type: 'varchar', length: 255 })
   fileName: string;
 
-  @Column({ type: 'varchar', length: 127 })
+  @Column({ name: 'content_type', type: 'varchar', length: 127 })
   contentType: string;
 
-  @Column({ type: 'bigint' })
+  @Column({ name: 'size_bytes', type: 'bigint' })
   sizeBytes: number;
 
-  @Column({ type: 'text' })
+  @Column({ name: 'storage_key', type: 'text' })
   storageKey: string;
 
-  @Column({ type: 'text', nullable: true })
+  @Column({ name: 'preview_key', type: 'text', nullable: true })
   previewKey: string | null;
 
   @Column({ type: 'enum', enum: ATTACHMENT_STATUSES })
   status: AttachmentStatus;
 
-  @Column({ type: 'varchar', length: 32, nullable: true })
+  @Column({ name: 'failure_reason', type: 'varchar', length: 32, nullable: true })
   failureReason: string | null;
 
-  @Column({ type: 'timestamptz', nullable: true })
+  @Column({ name: 'upload_confirmed_at', type: 'timestamptz', nullable: true })
   uploadConfirmedAt: Date | null;
 
   @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })

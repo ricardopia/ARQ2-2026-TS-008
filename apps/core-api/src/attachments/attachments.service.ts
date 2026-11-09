@@ -19,6 +19,7 @@ const UPLOAD_TTL_SECONDS = 900; // 15 minutes (spec section 3.4)
 @Injectable()
 export class AttachmentsService {
   private readonly s3: S3Client;
+  private readonly s3Presign: S3Client;
 
   constructor(
     private readonly dataSource: DataSource,
@@ -28,6 +29,16 @@ export class AttachmentsService {
     this.s3 = new S3Client({
       region: 'us-east-1',
       endpoint: this.config.get<string>('RUSTFS_ENDPOINT') ?? 'http://rustfs:9000',
+      forcePathStyle: true,
+      credentials: {
+        accessKeyId: this.config.get<string>('RUSTFS_ACCESS_KEY') ?? '',
+        secretAccessKey: this.config.get<string>('RUSTFS_SECRET_KEY') ?? '',
+      },
+    });
+    // Presigned URLs are handed to the browser, so they must be host-facing.
+    this.s3Presign = new S3Client({
+      region: 'us-east-1',
+      endpoint: this.config.get<string>('RUSTFS_ENDPOINT') ?? 'http://localhost:9000',
       forcePathStyle: true,
       credentials: {
         accessKeyId: this.config.get<string>('RUSTFS_ACCESS_KEY') ?? '',
@@ -135,7 +146,7 @@ export class AttachmentsService {
     });
 
     const url = await getSignedUrl(
-      this.s3,
+      this.s3Presign,
       new PutObjectCommand({ Bucket: BUCKET, Key: storageKey }),
       { expiresIn: UPLOAD_TTL_SECONDS },
     );
