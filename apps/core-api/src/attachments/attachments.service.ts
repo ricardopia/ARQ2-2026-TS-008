@@ -1,6 +1,6 @@
 import { HttpStatus, Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
+import { S3Client, HeadObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { randomUUID } from 'node:crypto';
 import { DataSource } from 'typeorm';
@@ -164,5 +164,120 @@ export class AttachmentsService {
         expiresAt,
       },
     };
+  }
+
+  /**
+   * Confirms a finished upload: the object must exist and match the declared
+   * size, then the attachment moves to PROCESSING and the `attachment.process`
+   * job is queued in the same transaction (FR-4.x, ADR 002/003).
+   */
+  async confirm(
+    attachmentId: string,
+    actorId: string,
+    correlationId: string,
+  ): Promise<Attachment> {
+    const attachment = await this.dataSource.getRepository(Attachment).findOne({
+      where: { id: attachmentId },
+    });
+    if (!attachment) {
+      throw new ProblemException(
+        HttpStatus.NOT_FOUND,
+        'NOT_FOUND',
+        'Not found',
+        'The requested resource does not exist.',
+      );
+    }
+    // Only the uploader may confirm; repeats are idempotent no-ops.
+    if (attachment.uploadedBy !== actorId) {
+      throw new ProblemException(
+        HttpStatus.FORBIDDEN,
+        'FORBIDDEN',
+        'Forbidden',
+        'You do not have permission to perform this action.',
+      );
+    }
+    if (attachment.status !== 'PENDING') {
+      return attachment;
+    }
+
+    let head;
+    try {
+      head = await this.s3.send(
+        new HeadObjectCommand({ Bucket: BUCKET, Key: attachment.storageKey }),
+      );
+    } catch {
+      throw new ProblemException(
+        HttpStatus.CONFLICT,
+        'UPLOAD_NOT_FOUND',
+        'Upload not found',
+        'The uploaded object is missing.',
+      );
+    }
+    if (Number(head.ContentLength ?? 0) !== attachment.sizeBytes) {
+      await this.dataSource.getRepository(Attachment).update(attachment.id, {
+        status: 'FAILED',
+        failureReason: 'SIZE_MISMATCH',
+      });
+      throw new ProblemException(
+        HttpStatus.CONFLICT,
+        'UPLOAD_SIZE_MISMATCH',
+        'Upload size mismatch',
+        'The uploaded size differs from the declared size.',
+      );
+    }
+
+    const task = await this.dataSource.getRepository(Task).findOne({
+      where: { id: attachment.taskId },
+    });
+    const board = task
+      ? await this.dataSource.getRepository(Board).findOne({
+          where: { id: task.boardId },
+        })
+      : null;
+
+    const updated = await this.dataSource.transaction(async (manager) => {
+      await manager.update(Attachment, attachment.id, {
+        status: 'PROCESSING',
+        uploadConfirmedAt: new Date(),
+      });
+      const eventId = randomUUID();
+      const payload = {
+        eventId,
+        eventType: 'attachment.process',
+        eventVersion: 1,
+        occurredAt: new Date().toISOString(),
+        producer: 'core-api',
+        correlationId,
+        actorId,
+        workspaceId: board?.workspaceId ?? attachment.boardId,
+        boardId: attachment.boardId,
+        aggregate: { type: 'attachment', id: attachment.id, version: null },
+        data: {
+          attachmentId: attachment.id,
+          taskId: attachment.taskId,
+          storageKey: attachment.storageKey,
+          declaredContentType: attachment.contentType,
+          declaredSizeBytes: attachment.sizeBytes,
+        },
+      };
+      await manager.query(
+        `INSERT INTO outbox_events (event_id, exchange, routing_key, payload)
+         VALUES ($1, $2, $3, $4)`,
+        [eventId, 'taskmaster.domain-events', 'attachment.process', JSON.stringify(payload)],
+      );
+      return manager.getRepository(Attachment).findOne({
+        where: { id: attachmentId },
+      });
+    });
+
+    if (!updated) {
+      throw new ProblemException(
+        HttpStatus.NOT_FOUND,
+        'NOT_FOUND',
+        'Not found',
+        'The requested resource does not exist.',
+      );
+    }
+    return updated;
   }
 }
