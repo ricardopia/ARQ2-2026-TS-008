@@ -1,6 +1,6 @@
 import { HttpStatus, Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { S3Client, HeadObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3';
+import { S3Client, GetObjectCommand, HeadObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { randomUUID } from 'node:crypto';
 import { DataSource } from 'typeorm';
@@ -15,6 +15,7 @@ import { CreateAttachmentDto } from './dto/create-attachment.dto';
 const BUCKET = 'taskmaster-attachments';
 const MAX_SIZE_BYTES = 262144000; // 250 MiB
 const UPLOAD_TTL_SECONDS = 900; // 15 minutes (spec section 3.4)
+const DOWNLOAD_TTL_SECONDS = 300; // 5 minutes (spec section 3.4)
 
 @Injectable()
 export class AttachmentsService {
@@ -290,5 +291,101 @@ export class AttachmentsService {
       );
     }
     return updated;
+  }
+
+  /** Attachment metadata + processing status, for board members (FR-4.3). */
+  async getStatus(attachmentId: string, actorId: string) {
+    const attachment = await this.dataSource.getRepository(Attachment).findOne({
+      where: { id: attachmentId },
+    });
+    if (!attachment) {
+      throw new ProblemException(
+        HttpStatus.NOT_FOUND,
+        'NOT_FOUND',
+        'Not found',
+        'The requested resource does not exist.',
+      );
+    }
+    const task = await this.dataSource.getRepository(Task).findOne({
+      where: { id: attachment.taskId },
+    });
+    const boardId = task?.boardId ?? attachment.boardId;
+    const role = await this.boards.getBoardRole(boardId, actorId);
+    if (!role) {
+      throw new ProblemException(
+        HttpStatus.NOT_FOUND,
+        'NOT_FOUND',
+        'Not found',
+        'The requested resource does not exist.',
+      );
+    }
+
+    return {
+      id: attachment.id,
+      taskId: attachment.taskId,
+      boardId: attachment.boardId,
+      fileName: attachment.fileName,
+      contentType: attachment.contentType,
+      sizeBytes: Number(attachment.sizeBytes),
+      status: attachment.status,
+      failureReason: attachment.failureReason,
+      hasPreview: Boolean(attachment.previewKey),
+      uploadedBy: attachment.uploadedBy,
+      createdAt: attachment.createdAt,
+      updatedAt: attachment.updatedAt,
+    };
+  }
+
+  /** Pre-signed download URL (original + optional preview) for a COMPLETED attachment (FR-4.3). */
+  async getDownloadUrl(attachmentId: string, actorId: string) {
+    const attachment = await this.dataSource.getRepository(Attachment).findOne({
+      where: { id: attachmentId },
+    });
+    if (!attachment) {
+      throw new ProblemException(
+        HttpStatus.NOT_FOUND,
+        'NOT_FOUND',
+        'Not found',
+        'The requested resource does not exist.',
+      );
+    }
+    const task = await this.dataSource.getRepository(Task).findOne({
+      where: { id: attachment.taskId },
+    });
+    const boardId = task?.boardId ?? attachment.boardId;
+    const role = await this.boards.getBoardRole(boardId, actorId);
+    if (!role) {
+      throw new ProblemException(
+        HttpStatus.NOT_FOUND,
+        'NOT_FOUND',
+        'Not found',
+        'The requested resource does not exist.',
+      );
+    }
+    if (attachment.status !== 'COMPLETED') {
+      throw new ProblemException(
+        HttpStatus.CONFLICT,
+        'ATTACHMENT_NOT_READY',
+        'Attachment not ready',
+        'The file has not been processed yet.',
+      );
+    }
+
+    const url = await getSignedUrl(
+      this.s3Presign,
+      new GetObjectCommand({ Bucket: BUCKET, Key: attachment.storageKey }),
+      { expiresIn: DOWNLOAD_TTL_SECONDS },
+    );
+    const previewUrl = attachment.previewKey
+      ? await getSignedUrl(
+          this.s3Presign,
+          new GetObjectCommand({ Bucket: BUCKET, Key: attachment.previewKey }),
+          { expiresIn: DOWNLOAD_TTL_SECONDS },
+        )
+      : null;
+
+    const expiresAt = new Date(Date.now() + DOWNLOAD_TTL_SECONDS * 1000).toISOString();
+
+    return { url, previewUrl, expiresAt };
   }
 }
