@@ -42,6 +42,7 @@ services:
       DATABASE_URL: postgres://taskmaster:${POSTGRES_PASSWORD}@postgres:5432/taskmaster
       JWT_SECRET: ${JWT_SECRET}
       INTERNAL_TOKEN: ${INTERNAL_TOKEN}
+      REDIS_URL: redis://redis:6379
     depends_on:
       postgres:
         condition: service_healthy

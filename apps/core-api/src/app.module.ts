@@ -15,6 +15,7 @@ import { BoardColumn } from './boards/board-column.entity';
 import { Task } from './tasks/task.entity';
 import { BoardsModule } from './boards/boards.module';
 import { TasksModule } from './tasks/tasks.module';
+import { RealtimeModule } from './realtime/realtime.module';
 import { MetricsController } from './observability/metrics.controller';
 import { MetricsService } from './observability/metrics.service';
 import { ObservabilityMiddleware } from './observability/http-middleware';
@@ -37,6 +38,7 @@ import { JsonLogger } from './observability/json-logger';
     WorkspacesModule,
     BoardsModule,
     TasksModule,
+    RealtimeModule,
   ],
   controllers: [MetricsController],
   providers: [
