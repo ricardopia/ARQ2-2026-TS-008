@@ -180,8 +180,8 @@ export class AttachmentsService {
 
   /**
    * Confirms a finished upload: the object must exist and match the declared
-   * size, then the attachment moves to PROCESSING and the `attachment.process`
-   * job is queued in the same transaction (FR-4.x, ADR 002/003).
+   * size, then the attachment remains PENDING until the file worker claims it,
+   * and the `attachment.process` job is queued in the same transaction.
    */
   async confirm(
     attachmentId: string,
@@ -249,7 +249,7 @@ export class AttachmentsService {
 
     const updated = await this.dataSource.transaction(async (manager) => {
       await manager.update(Attachment, attachment.id, {
-        status: 'PROCESSING',
+        status: 'PENDING',
         uploadConfirmedAt: new Date(),
       });
       const eventId = randomUUID();
@@ -275,7 +275,7 @@ export class AttachmentsService {
       await manager.query(
         `INSERT INTO outbox_events (event_id, exchange, routing_key, payload)
          VALUES ($1, $2, $3, $4)`,
-        [eventId, 'taskmaster.domain-events', 'attachment.process', JSON.stringify(payload)],
+        [eventId, 'taskmaster.file-jobs', 'attachment.process', JSON.stringify(payload)],
       );
       return manager.getRepository(Attachment).findOne({
         where: { id: attachmentId },

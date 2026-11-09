@@ -62,15 +62,15 @@ describe('attachment confirm api', () => {
     return `Bearer ${token}`;
   };
 
-  it('answers 202 with the attachment after confirming the upload', async () => {
-    attachments.confirm.mockResolvedValue({ id: ATTACHMENT_ID, status: 'PROCESSING' });
+  it('answers 202 with the pending attachment after confirming the upload', async () => {
+    attachments.confirm.mockResolvedValue({ id: ATTACHMENT_ID, status: 'PENDING' });
 
     const response = await request(server)
       .post(`/api/v1/attachments/${ATTACHMENT_ID}/confirm`)
       .set('Authorization', await auth());
 
     expect(response.status).toBe(202);
-    expect(response.body).toEqual({ id: ATTACHMENT_ID, status: 'PROCESSING' });
+    expect(response.body).toEqual({ id: ATTACHMENT_ID, status: 'PENDING' });
     expect(attachments.confirm).toHaveBeenCalledWith(ATTACHMENT_ID, ALICE, expect.any(String));
   });
 
