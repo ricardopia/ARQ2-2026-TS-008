@@ -72,6 +72,28 @@ services:
     networks:
       - taskmaster
 
+  file-worker:
+    build:
+      context: ./apps/file-worker
+    container_name: taskmaster-file-worker
+    restart: unless-stopped
+    expose:
+      - "8082"
+    environment:
+      PORT: 8082
+      DATABASE_URL: postgres://taskmaster:${POSTGRES_PASSWORD}@postgres:5432/taskmaster
+      RABBITMQ_URL: amqp://rabbit-taskmaster:${RABBITMQ_PASSWORD}@rabbitmq:5672
+      RUSTFS_ACCESS_KEY: ${RUSTFS_ACCESS_KEY}
+      RUSTFS_SECRET_KEY: ${RUSTFS_SECRET_KEY}
+      RUSTFS_ENDPOINT: http://rustfs:9000
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - taskmaster
+
   postgres:
     image: postgres:17-alpine
     container_name: taskmaster-postgres
