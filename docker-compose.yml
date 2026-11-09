@@ -43,6 +43,9 @@ services:
       JWT_SECRET: ${JWT_SECRET}
       INTERNAL_TOKEN: ${INTERNAL_TOKEN}
       REDIS_URL: redis://redis:6379
+      RUSTFS_ACCESS_KEY: ${RUSTFS_ACCESS_KEY}
+      RUSTFS_SECRET_KEY: ${RUSTFS_SECRET_KEY}
+      RUSTFS_ENDPOINT: http://localhost:9000
     depends_on:
       postgres:
         condition: service_healthy
