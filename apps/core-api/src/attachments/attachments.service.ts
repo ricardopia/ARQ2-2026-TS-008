@@ -28,7 +28,7 @@ export class AttachmentsService {
   ) {
     this.s3 = new S3Client({
       region: 'us-east-1',
-      endpoint: this.config.get<string>('RUSTFS_ENDPOINT') ?? 'http://rustfs:9000',
+      endpoint: 'http://rustfs:9000',
       forcePathStyle: true,
       credentials: {
         accessKeyId: this.config.get<string>('RUSTFS_ACCESS_KEY') ?? '',
@@ -224,7 +224,7 @@ export class AttachmentsService {
         'The uploaded object is missing.',
       );
     }
-    if (Number(head.ContentLength ?? 0) !== attachment.sizeBytes) {
+    if (Number(head.ContentLength ?? 0) !== Number(attachment.sizeBytes)) {
       await this.dataSource.getRepository(Attachment).update(attachment.id, {
         status: 'FAILED',
         failureReason: 'SIZE_MISMATCH',
