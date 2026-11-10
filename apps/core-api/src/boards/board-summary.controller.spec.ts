@@ -15,7 +15,8 @@ import { Board } from './board.entity';
 import { BoardColumn } from './board-column.entity';
 import { BoardMember } from './board-member.entity';
 import { BoardSummaryController } from './board-summary.controller';
-import { BoardsService } from './boards.service';
+import { BoardsService, REDIS_CLIENT } from './boards.service';
+import { MetricsService } from '../observability/metrics.service';
 
 const JWT_SECRET = 'test-secret';
 const ALICE = '0a11ce00-0000-4000-8000-000000000001';
@@ -36,6 +37,8 @@ describe('GET /boards/{boardId}/summary', () => {
   let memberRepo: { findOneBy: jest.Mock };
   let taskRepo: { find: jest.Mock };
   let dataSource: { getRepository: jest.Mock; transaction: jest.Mock };
+  let redis: { get: jest.Mock; set: jest.Mock; del: jest.Mock };
+  let metrics: { summaryCache: { inc: jest.Mock } };
 
   beforeEach(async () => {
     jest.clearAllMocks();
@@ -44,6 +47,12 @@ describe('GET /boards/{boardId}/summary', () => {
     columnRepo = { find: jest.fn() };
     memberRepo = { findOneBy: jest.fn() };
     taskRepo = { find: jest.fn() };
+    redis = {
+      get: jest.fn().mockResolvedValue(null),
+      set: jest.fn().mockResolvedValue('OK'),
+      del: jest.fn().mockResolvedValue(1),
+    };
+    metrics = { summaryCache: { inc: jest.fn() } };
     dataSource = {
       getRepository: jest.fn((target: unknown) => {
         if (target === Board) return boardRepo;
@@ -70,6 +79,8 @@ describe('GET /boards/{boardId}/summary', () => {
         BoardsService,
         WorkspacesService,
         { provide: DataSource, useValue: dataSource },
+        { provide: REDIS_CLIENT, useValue: redis },
+        { provide: MetricsService, useValue: metrics },
         { provide: APP_GUARD, useClass: AuthGuard },
       ],
     }).compile();
@@ -173,7 +184,28 @@ describe('GET /boards/{boardId}/summary', () => {
         },
       ]);
       expect(typeof response.body.generatedAt).toBe('string');
-      expect(taskRepo.find).toHaveBeenCalledWith({ where: { boardId: BOARD_ID } });
+      // FR-2.1: the query selects only TaskCard columns, never `description`.
+      expect(taskRepo.find).toHaveBeenCalledWith({
+        where: { boardId: BOARD_ID },
+        select: {
+          id: true,
+          columnId: true,
+          title: true,
+          assigneeIds: true,
+          dueDate: true,
+          position: true,
+          version: true,
+          updatedAt: true,
+        },
+      });
+      // FR-2.2: the summary is stored without the caller's role, 300 s TTL.
+      expect(redis.set).toHaveBeenCalledWith(
+        `board-summary:${BOARD_ID}`,
+        expect.not.stringContaining('"myRole"'),
+        'EX',
+        300,
+      );
+      expect(metrics.summaryCache.inc).toHaveBeenCalledWith({ result: 'miss' });
     });
 
     it('answers 404 for a caller without any effective board role (FR-1.3)', async () => {

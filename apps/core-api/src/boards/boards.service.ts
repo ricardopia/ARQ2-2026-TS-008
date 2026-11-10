@@ -1,7 +1,9 @@
-import { HttpStatus, Injectable } from '@nestjs/common';
+import { HttpStatus, Inject, Injectable } from '@nestjs/common';
 import { DataSource } from 'typeorm';
+import { Redis } from 'ioredis';
 import { isUniqueViolation } from '../common/pg-error';
 import { ProblemException } from '../common/problem';
+import { MetricsService } from '../observability/metrics.service';
 import { User } from '../users/user.entity';
 import { WorkspacesService } from '../workspaces/workspaces.service';
 import { Board } from './board.entity';
@@ -77,11 +79,43 @@ const UUID_RE =
 /** A board is created with three fixed columns (spec section 1.3, non-goal). */
 const DEFAULT_COLUMNS = ['To Do', 'In Progress', 'Done'];
 
+/** Redis client for the summary cache; provided by BoardsModule (FR-2.2). */
+export const REDIS_CLIENT = 'REDIS_CLIENT';
+
+/** Key and TTL from spec section 2.5 (FR-2.2, initial value). */
+const SUMMARY_TTL_SECONDS = 300;
+const summaryKey = (boardId: string) => `board-summary:${boardId}`;
+
+/** Selecting only these columns keeps `description` unread (FR-2.1). */
+const TASK_CARD_COLUMNS = {
+  id: true,
+  columnId: true,
+  title: true,
+  assigneeIds: true,
+  dueDate: true,
+  position: true,
+  version: true,
+  updatedAt: true,
+} as const;
+
+/** What Redis holds: dates as ISO strings and no per-user role (FR-2.2). */
+type CachedSummary = {
+  board: Omit<BoardSummaryBoard, 'myRole' | 'createdAt'> & { createdAt: string };
+  columns: Array<
+    Omit<BoardSummary['columns'][number], 'tasks'> & {
+      tasks: Array<Omit<TaskCard, 'updatedAt'> & { updatedAt: string }>;
+    }
+  >;
+  generatedAt: string;
+};
+
 @Injectable()
 export class BoardsService {
   constructor(
     private readonly dataSource: DataSource,
     private readonly workspaces: WorkspacesService,
+    @Inject(REDIS_CLIENT) private readonly redis: Redis,
+    private readonly metrics: MetricsService,
   ) {}
 
   /** Creates the board, its three default columns and the creator's ADMIN membership in a single transaction; the caller must be a workspace member (enforced by the WorkspaceRoleGuard before this runs). */
@@ -157,8 +191,10 @@ export class BoardsService {
   /**
    * Lightweight board summary (FR-2.1): the board plus, per column ordered
    * by position, its tasks as TaskCards. Never includes descriptions or
-   * attachments, and the task query does not read them (FR-2.2 cache is a
-   * later increment on top of this read path).
+   * attachments, and the task query does not read them. Served from the
+   * `board-summary:{boardId}` Redis key when present (FR-2.2); a down Redis
+   * falls back to PostgreSQL. The caller's `myRole` is computed on every
+   * request and never cached.
    */
   async getSummary(boardId: string, userId: string): Promise<BoardSummary> {
     if (!UUID_RE.test(boardId) || !UUID_RE.test(userId)) {
@@ -170,10 +206,10 @@ export class BoardsService {
       );
     }
 
-    const board = await this.dataSource
-      .getRepository(Board)
-      .findOneBy({ id: boardId });
-    if (!board) {
+    // The access check runs on every request: no role and a missing board
+    // answer identically (FR-1.3), and it yields the per-request myRole.
+    const role = await this.getBoardRole(boardId, userId);
+    if (!role) {
       throw new ProblemException(
         HttpStatus.NOT_FOUND,
         'NOT_FOUND',
@@ -182,8 +218,74 @@ export class BoardsService {
       );
     }
 
-    const role = await this.getBoardRole(boardId, userId);
-    if (!role) {
+    let cached: CachedSummary | null = null;
+    let cacheUp = true;
+    try {
+      const raw = await this.redis.get(summaryKey(boardId));
+      cached = raw ? (JSON.parse(raw) as CachedSummary) : null;
+    } catch {
+      // Redis down: serve from PostgreSQL (spec section 5.2 edge case).
+      cacheUp = false;
+    }
+    this.metrics.summaryCache.inc({
+      result: cacheUp ? (cached ? 'hit' : 'miss') : 'error',
+    });
+    if (cached) {
+      return this.withRole(cached, role);
+    }
+
+    const summary = await this.buildSummary(boardId, role);
+    try {
+      const { myRole, ...board } = summary.board; // myRole is per-user: never stored (FR-2.2)
+      await this.redis.set(
+        summaryKey(boardId),
+        JSON.stringify({ ...summary, board }),
+        'EX',
+        SUMMARY_TTL_SECONDS,
+      );
+    } catch {
+      // Redis is optional: skipping the store only costs the next read a PostgreSQL hit.
+    }
+    return summary;
+  }
+
+  /** Drops the cached summary after a committed write (FR-2.2). */
+  async invalidateSummary(boardId: string): Promise<void> {
+    try {
+      await this.redis.del(summaryKey(boardId));
+    } catch {
+      // Redis down: the 300 s TTL bounds how long a stale summary can survive.
+    }
+  }
+
+  /** Re-attaches the caller's role and revives the dates JSON turned into strings. */
+  private withRole(cached: CachedSummary, role: BoardRole): BoardSummary {
+    return {
+      board: {
+        ...cached.board,
+        myRole: role,
+        createdAt: new Date(cached.board.createdAt),
+      },
+      columns: cached.columns.map((column) => ({
+        ...column,
+        tasks: column.tasks.map((task) => ({
+          ...task,
+          updatedAt: new Date(task.updatedAt),
+        })),
+      })),
+      generatedAt: new Date(cached.generatedAt),
+    };
+  }
+
+  /** Builds the summary from PostgreSQL; the task query never reads `description` (FR-2.1). */
+  private async buildSummary(
+    boardId: string,
+    role: BoardRole,
+  ): Promise<BoardSummary> {
+    const board = await this.dataSource
+      .getRepository(Board)
+      .findOneBy({ id: boardId });
+    if (!board) {
       throw new ProblemException(
         HttpStatus.NOT_FOUND,
         'NOT_FOUND',
@@ -197,6 +299,7 @@ export class BoardsService {
       .find({ where: { boardId }, order: { position: 'ASC' } });
     const tasks = await this.dataSource.getRepository(Task).find({
       where: { boardId },
+      select: TASK_CARD_COLUMNS,
     });
 
     const tasksByColumn = new Map<string, TaskCard[]>();

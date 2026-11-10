@@ -10,7 +10,7 @@ import { BoardsService } from './boards.service';
 export class BoardSummaryController {
   constructor(private readonly boards: BoardsService) {}
 
-  /** GET /boards/{boardId}/summary: lightweight, cached later on top of this read path. */
+  /** GET /boards/{boardId}/summary: lightweight, served from Redis when cached (FR-2.2). */
   @Get(':boardId/summary')
   getSummary(
     @Param('boardId') boardId: string,

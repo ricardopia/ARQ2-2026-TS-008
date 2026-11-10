@@ -14,7 +14,8 @@ import { Board } from './board.entity';
 import { BoardColumn } from './board-column.entity';
 import { BoardMember } from './board-member.entity';
 import { BoardsController } from './boards.controller';
-import { BoardsService } from './boards.service';
+import { BoardsService, REDIS_CLIENT } from './boards.service';
+import { MetricsService } from '../observability/metrics.service';
 
 const JWT_SECRET = 'test-secret';
 const ALICE = '0a11ce00-0000-4000-8000-000000000001';
@@ -95,6 +96,8 @@ describe('boards creation', () => {
         BoardsService,
         WorkspacesService,
         { provide: DataSource, useValue: dataSource },
+        { provide: REDIS_CLIENT, useValue: { get: jest.fn(), set: jest.fn(), del: jest.fn() } },
+        { provide: MetricsService, useValue: { summaryCache: { inc: jest.fn() } } },
         { provide: APP_GUARD, useClass: AuthGuard },
       ],
     }).compile();

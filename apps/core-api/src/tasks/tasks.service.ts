@@ -161,6 +161,7 @@ export class TasksService {
       return saved;
     });
 
+    await this.boards.invalidateSummary(boardId);
     return this.toDetail(task);
   }
 
@@ -291,6 +292,7 @@ export class TasksService {
         'The task was modified by another user. Review the current state and retry.',
       );
     }
+    await this.boards.invalidateSummary(task.boardId);
     return this.toDetail(updated);
   }
 
@@ -408,6 +410,7 @@ export class TasksService {
         'The task was modified by another user. Review the current state and retry.',
       );
     }
+    await this.boards.invalidateSummary(task.boardId);
     return this.toDetail(updated);
   }
 

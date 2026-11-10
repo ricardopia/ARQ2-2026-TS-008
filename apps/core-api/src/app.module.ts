@@ -18,8 +18,7 @@ import { BoardsModule } from './boards/boards.module';
 import { TasksModule } from './tasks/tasks.module';
 import { RealtimeModule } from './realtime/realtime.module';
 import { AttachmentsModule } from './attachments/attachments.module';
-import { MetricsController } from './observability/metrics.controller';
-import { MetricsService } from './observability/metrics.service';
+import { ObservabilityModule } from './observability/observability.module';
 import { ObservabilityMiddleware } from './observability/http-middleware';
 import { JsonLogger } from './observability/json-logger';
 
@@ -42,10 +41,9 @@ import { JsonLogger } from './observability/json-logger';
     TasksModule,
     RealtimeModule,
     AttachmentsModule,
+    ObservabilityModule,
   ],
-  controllers: [MetricsController],
   providers: [
-    MetricsService,
     { provide: JsonLogger, useFactory: () => new JsonLogger() },
     { provide: APP_GUARD, useClass: AuthGuard },
   ],
