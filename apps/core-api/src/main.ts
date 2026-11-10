@@ -1,3 +1,5 @@
+// First import: the SDK must patch express/pg before Nest loads them.
+import './tracing';
 import { ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
