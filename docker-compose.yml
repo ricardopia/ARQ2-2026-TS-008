@@ -27,6 +27,7 @@ services:
       - ./infrastructure/nginx/api-gateway/conf.d/routes.conf:/etc/nginx/templates/routes.conf.template:ro
     depends_on:
       - core-api
+      - realtime-service
     networks:
       - taskmaster
 
@@ -93,6 +94,30 @@ services:
         condition: service_healthy
       rabbitmq:
         condition: service_healthy
+    networks:
+      - taskmaster
+
+  realtime-service:
+    build:
+      context: ./apps/realtime-service
+    container_name: taskmaster-realtime-service
+    restart: unless-stopped
+    expose:
+      - "8083"
+    environment:
+      PORT: 8083
+      REDIS_URL: redis://redis:6379
+      RABBITMQ_URL: amqp://rabbit-taskmaster:${RABBITMQ_PASSWORD}@rabbitmq:5672
+      CORE_API_URL: http://core-api:8080
+      INTERNAL_TOKEN: ${INTERNAL_TOKEN}
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4318
+    depends_on:
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      core-api:
+        condition: service_started
     networks:
       - taskmaster
 
