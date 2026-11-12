@@ -1,0 +1,91 @@
+groups:
+  - name: taskmaster-availability
+    rules:
+      - alert: ServiceDown
+        expr: up{job=~"core-api|outbox-relay|file-worker|realtime-service"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "{{ $labels.job }} is down"
+          description: "Prometheus cannot scrape {{ $labels.instance }}."
+
+      - alert: RealtimeBrokerDisconnected
+        expr: min(realtime_broker_connected) == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "The Realtime Service lost its RabbitMQ consumer"
+          description: "Clients stop receiving board updates until it reconnects."
+
+  - name: taskmaster-messaging
+    rules:
+      # Spec NFR-6: alert when the dead-letter queue is not empty.
+      - alert: DeadLetterQueueNotEmpty
+        expr: sum(rabbitmq_detailed_queue_messages{queue=~".*dlq.*"}) > 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "A dead-letter queue has messages"
+          description: "Jobs failed after every retry. Inspect the dlq queues in the RabbitMQ console (port 15672)."
+
+      # The relay normally drains the outbox in well under a second, so rows
+      # that never reach zero for 2 minutes mean it is stuck.
+      - alert: OutboxBacklog
+        expr: min_over_time(outbox_relay_pending_rows[2m]) > 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Outbox events are not being published"
+          description: "outbox_relay_pending_rows has not reached 0 in 2 minutes. Check the relay and RabbitMQ."
+
+      - alert: OutboxRelayFailing
+        expr: rate(outbox_relay_cycle_failures_total[5m]) > 0
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "The outbox relay keeps failing"
+          description: "Relay cycles are ending in errors and backing off."
+
+  - name: taskmaster-quality
+    rules:
+      # NFR-3: commit-to-client delivery p95 <= 2 s.
+      - alert: NotificationLatencyHigh
+        expr: histogram_quantile(0.95, sum by (le) (rate(realtime_event_delivery_seconds_bucket[5m]))) > 2
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Real-time delivery p95 is above 2 s (NFR-3)"
+
+      - alert: FileWorkerFailureRatioHigh
+        expr: |
+          sum(rate(file_worker_jobs_failed_total[10m]))
+            / sum(rate(file_worker_jobs_processed_total[10m])) > 0.2
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "More than 20% of file jobs end in FAILED"
+
+      - alert: CoreApiHigh5xxRate
+        expr: |
+          sum(rate(http_requests_total{status=~"5.."}[5m]))
+            / sum(rate(http_requests_total[5m])) > 0.05
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "More than 5% of Core API responses are 5xx"
+
+      - alert: CoreApiLatencyHigh
+        expr: histogram_quantile(0.95, sum by (le) (rate(http_request_duration_seconds_bucket[5m]))) > 1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Core API p95 latency is above 1 s"
