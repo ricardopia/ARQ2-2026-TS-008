@@ -30,7 +30,7 @@ const uploadResponse = {
     updatedAt: '2026-10-13T14:30:00.000Z',
   },
   upload: {
-    method: 'PUT',
+    method: 'POST',
     url: 'https://taskmaster-attachments.s3.amazonaws.com/boards/b7e4d1c2/attachments/f11e0000/original',
     fields: { key: 'boards/b7e4d1c2/attachments/f11e0000/original', 'Content-Type': 'image/vnd.adobe.photoshop' },
     expiresAt: '2026-10-13T14:45:00.000Z',

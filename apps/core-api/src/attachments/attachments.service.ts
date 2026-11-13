@@ -1,6 +1,7 @@
 import { HttpStatus, Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { S3Client, GetObjectCommand, HeadObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3';
+import { S3Client, GetObjectCommand, HeadObjectCommand } from '@aws-sdk/client-s3';
+import { createPresignedPost } from '@aws-sdk/s3-presigned-post';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { randomUUID } from 'node:crypto';
 import { DataSource } from 'typeorm';
@@ -146,11 +147,17 @@ export class AttachmentsService {
       status: 'PENDING',
     });
 
-    const url = await getSignedUrl(
-      this.s3Presign,
-      new PutObjectCommand({ Bucket: BUCKET, Key: storageKey }),
-      { expiresIn: UPLOAD_TTL_SECONDS },
-    );
+    // POST policy makes storage enforce key, content type and exact size (spec 3.4).
+    const { url, fields } = await createPresignedPost(this.s3Presign, {
+      Bucket: BUCKET,
+      Key: storageKey,
+      Fields: { 'Content-Type': dto.contentType },
+      Conditions: [
+        ['eq', '$Content-Type', dto.contentType],
+        ['content-length-range', dto.sizeBytes, dto.sizeBytes],
+      ],
+      Expires: UPLOAD_TTL_SECONDS,
+    });
 
     const expiresAt = new Date(Date.now() + UPLOAD_TTL_SECONDS * 1000).toISOString();
 
@@ -170,9 +177,9 @@ export class AttachmentsService {
         updatedAt: attachment.updatedAt,
       },
       upload: {
-        method: 'PUT',
+        method: 'POST',
         url,
-        fields: { key: storageKey, 'Content-Type': dto.contentType },
+        fields,
         expiresAt,
       },
     };
@@ -208,7 +215,7 @@ export class AttachmentsService {
         'You do not have permission to perform this action.',
       );
     }
-    if (attachment.status !== 'PENDING') {
+    if (attachment.status !== 'PENDING' || attachment.uploadConfirmedAt) {
       return attachment;
     }
 
@@ -248,10 +255,19 @@ export class AttachmentsService {
       : null;
 
     const updated = await this.dataSource.transaction(async (manager) => {
-      await manager.update(Attachment, attachment.id, {
-        status: 'PENDING',
-        uploadConfirmedAt: new Date(),
-      });
+      // Atomic claim: only the first confirm flips upload_confirmed_at, so concurrent repeats queue no second job.
+      const claim = await manager
+        .createQueryBuilder()
+        .update(Attachment)
+        .set({ uploadConfirmedAt: () => 'now()' })
+        .where('id = :id AND status = :status AND upload_confirmed_at IS NULL', {
+          id: attachment.id,
+          status: 'PENDING',
+        })
+        .execute();
+      if (!claim.affected) {
+        return manager.getRepository(Attachment).findOne({ where: { id: attachmentId } });
+      }
       const eventId = randomUUID();
       const payload = {
         eventId,
