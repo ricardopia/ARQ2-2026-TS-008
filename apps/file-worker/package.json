@@ -16,7 +16,8 @@
     "@opentelemetry/sdk-node": "^0.301.0",
     "@prometheus-io/client": "^0.16.1",
     "amqplib": "^2.3.0",
-    "pg": "^8.23.1"
+    "pg": "^8.23.1",
+    "sharp": "^0.35.5"
   },
   "devDependencies": {
     "@types/jest": "^30.0.0",

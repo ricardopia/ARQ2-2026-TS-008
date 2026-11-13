@@ -18,6 +18,11 @@ export const jobsFailed = new Counter({
   help: 'File-processing jobs that failed after retries were exhausted or failed permanently',
 });
 
+export const jobsDlq = new Counter({
+  name: 'file_worker_jobs_dlq_total',
+  help: 'File-processing jobs moved to the dead-letter queue after every retry',
+});
+
 export function startMetricsServer(port: number): void {
   createServer(async (req, res) => {
     if (req.url !== '/metrics') {
