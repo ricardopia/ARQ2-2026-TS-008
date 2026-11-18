@@ -113,6 +113,7 @@ CREATE TABLE IF NOT EXISTS outbox_events (
   exchange      varchar(100) NOT NULL,
   routing_key   varchar(100) NOT NULL,
   payload       jsonb NOT NULL, 
+  traceparent   text,                                -- W3C context of the writing transaction
   occurred_at   timestamptz NOT NULL DEFAULT now(),
   published_at  timestamptz,
   attempts      integer NOT NULL DEFAULT 0

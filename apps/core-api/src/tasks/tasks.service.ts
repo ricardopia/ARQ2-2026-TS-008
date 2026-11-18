@@ -2,6 +2,7 @@ import { HttpStatus, Injectable } from '@nestjs/common';
 import { DataSource, EntityManager } from 'typeorm';
 import { randomUUID } from 'node:crypto';
 import { ProblemException } from '../common/problem';
+import { currentTraceparent } from '../common/trace-context';
 import { Board } from '../boards/board.entity';
 import { BoardColumn } from '../boards/board-column.entity';
 import { BoardsService } from '../boards/boards.service';
@@ -441,9 +442,9 @@ export class TasksService {
     };
     // Written in the same transaction as the task change (FR-5.1, ADR 003).
     await manager.query(
-      `INSERT INTO outbox_events (event_id, exchange, routing_key, payload)
-       VALUES ($1, $2, $3, $4)`,
-      [eventId, 'taskmaster.domain-events', event.eventType, JSON.stringify(payload)],
+      `INSERT INTO outbox_events (event_id, exchange, routing_key, payload, traceparent)
+       VALUES ($1, $2, $3, $4, $5)`,
+      [eventId, 'taskmaster.domain-events', event.eventType, JSON.stringify(payload), currentTraceparent()],
     );
   }
 

@@ -16,7 +16,7 @@ export function createDb(connectionString: string): Db {
   return {
     async fetchPending(limit) {
       const { rows } = await pool.query(
-        `SELECT seq, event_id, exchange, routing_key, payload
+        `SELECT seq, event_id, exchange, routing_key, payload, traceparent
            FROM outbox_events
           WHERE published_at IS NULL
           ORDER BY seq
@@ -29,6 +29,7 @@ export function createDb(connectionString: string): Db {
         exchange: row.exchange,
         routingKey: row.routing_key,
         payload: row.payload,
+        traceparent: row.traceparent,
       }));
     },
 

@@ -1,5 +1,6 @@
 import { connect } from 'amqplib';
 import type { ConfirmChannel, RecoveringChannelModel } from 'amqplib';
+import { context, propagation } from '@opentelemetry/api';
 import { log } from './log.js';
 import type { OutboxRow } from './relay.js';
 
@@ -41,18 +42,27 @@ export async function createPublisher(url: string): Promise<Publisher> {
   return {
     async publish(row) {
       const ch = await getChannel();
+      // Publishing inside the stored context joins the original request's
+      // trace; the amqplib instrumentation then injects traceparent for the
+      // consumer. No stored context (row predates the column) keeps current behaviour.
+      const active = context.active();
+      const stored = row.traceparent
+        ? propagation.extract(active, { traceparent: row.traceparent })
+        : active;
       try {
         const correlationId = row.payload.correlationId;
-        ch.publish(row.exchange, row.routingKey, Buffer.from(JSON.stringify(row.payload)), {
-          persistent: true,
-          messageId: row.eventId,
-          contentType: 'application/json',
-          ...(typeof correlationId === 'string'
-            ? { headers: { 'x-correlation-id': correlationId } }
-            : {}),
+        await context.with(stored, () => {
+          ch.publish(row.exchange, row.routingKey, Buffer.from(JSON.stringify(row.payload)), {
+            persistent: true,
+            messageId: row.eventId,
+            contentType: 'application/json',
+            ...(typeof correlationId === 'string'
+              ? { headers: { 'x-correlation-id': correlationId } }
+              : {}),
+          });
+          // Marking the row happens only after this confirm (spec 4.2).
+          return ch.waitForConfirms();
         });
-        // Marking the row happens only after this confirm (spec 4.2).
-        await ch.waitForConfirms();
       } catch (err) {
         channel = null; // the channel died with its connection; the next attempt opens a new one
         throw err;

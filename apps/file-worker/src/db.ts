@@ -1,4 +1,13 @@
 import { Pool } from 'pg';
+import { context, propagation } from '@opentelemetry/api';
+
+// W3C traceparent of the active span (the process span), so the
+// attachment.processed event joins the same trace when the relay publishes it.
+function currentTraceparent(): string | null {
+  const carrier: Record<string, string> = {};
+  propagation.inject(context.active(), carrier);
+  return carrier.traceparent ?? null;
+}
 
 export interface AttachmentRow {
   id: string;
@@ -101,9 +110,15 @@ export function createDb(connectionString: string): Db {
         // a raced duplicate can never announce a transition that did not happen.
         if (rows.length > 0) {
           await client.query(
-            `INSERT INTO outbox_events (event_id, exchange, routing_key, payload)
-             VALUES ($1, $2, $3, $4)`,
-            [processedEvent.eventId, 'taskmaster.domain-events', 'attachment.processed', JSON.stringify(processedEvent)],
+            `INSERT INTO outbox_events (event_id, exchange, routing_key, payload, traceparent)
+             VALUES ($1, $2, $3, $4, $5)`,
+            [
+              processedEvent.eventId,
+              'taskmaster.domain-events',
+              'attachment.processed',
+              JSON.stringify(processedEvent),
+              currentTraceparent(),
+            ],
           );
         }
         await client.query('COMMIT');

@@ -4,6 +4,8 @@ export interface OutboxRow {
   exchange: string;
   routingKey: string;
   payload: Record<string, unknown>;
+  /** W3C traceparent of the transaction that wrote the row, if any. */
+  traceparent: string | null;
 }
 
 export interface RelayDeps {

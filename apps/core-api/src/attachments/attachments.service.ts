@@ -6,6 +6,7 @@ import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { randomUUID } from 'node:crypto';
 import { DataSource } from 'typeorm';
 import { ProblemException } from '../common/problem';
+import { currentTraceparent } from '../common/trace-context';
 import { Board } from '../boards/board.entity';
 import { BoardsService } from '../boards/boards.service';
 import { Task } from '../tasks/task.entity';
@@ -289,9 +290,9 @@ export class AttachmentsService {
         },
       };
       await manager.query(
-        `INSERT INTO outbox_events (event_id, exchange, routing_key, payload)
-         VALUES ($1, $2, $3, $4)`,
-        [eventId, 'taskmaster.file-jobs', 'attachment.process', JSON.stringify(payload)],
+        `INSERT INTO outbox_events (event_id, exchange, routing_key, payload, traceparent)
+         VALUES ($1, $2, $3, $4, $5)`,
+        [eventId, 'taskmaster.file-jobs', 'attachment.process', JSON.stringify(payload), currentTraceparent()],
       );
       return manager.getRepository(Attachment).findOne({
         where: { id: attachmentId },

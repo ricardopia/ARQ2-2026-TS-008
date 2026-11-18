@@ -8,6 +8,7 @@ function row(seq: string): OutboxRow {
     exchange: 'taskmaster.domain-events',
     routingKey: 'task.updated',
     payload: { correlationId: 'c-1' },
+    traceparent: null,
   };
 }
 
