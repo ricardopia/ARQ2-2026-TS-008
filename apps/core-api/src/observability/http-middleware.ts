@@ -1,6 +1,7 @@
 import { Injectable, NestMiddleware } from '@nestjs/common';
 import { NextFunction, Request, Response } from 'express';
 import { randomUUID } from 'node:crypto';
+import { context, trace } from '@opentelemetry/api';
 import { MetricsService } from './metrics.service';
 import { JsonLogger } from './json-logger';
 
@@ -22,6 +23,15 @@ export class ObservabilityMiddleware implements NestMiddleware {
       typeof header === 'string' && header.length > 0 ? header : randomUUID();
     res.setHeader('X-Correlation-Id', correlationId);
     this.logger.setCorrelationId(correlationId);
+
+    // Echo the request's trace id so any client (Postman, curl, browser dev
+    // tools) can paste it straight into Jaeger's "Trace ID" search.
+    const span = trace.getSpan(context.active());
+    const traceId = span?.spanContext().traceId;
+    if (span && traceId && traceId !== '0'.repeat(32)) {
+      res.setHeader('X-Trace-Id', traceId);
+      span.setAttribute('correlation.id', correlationId);
+    }
 
     const start = process.hrtime.bigint();
 
