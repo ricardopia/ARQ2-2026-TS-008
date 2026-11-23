@@ -13,17 +13,21 @@ export interface Consumer {
 /**
  * Consumes domain events into this instance's own exclusive, auto-delete
  * queue `realtime.{instanceId}` so every instance sees every event (spec 4.1).
- * Reconnects with 1 s doubling up to 30 s. Events published while the service
- * was down are not replayed: clients reload the summary on reconnect (spec 3.5).
+ * Reconnects with 1 s doubling up to 30 s. Events published while the consumer
+ * was down are not replayed (the queue is exclusive and auto-delete), so after
+ * every RE-connection `onReconnect` runs: the service closes its sockets so
+ * clients reconnect, subscribe again and reload the summary (spec 3.5, section 7).
  */
 export function startConsumer(
   url: string,
   instanceId: string,
   handler: (msg: ConsumeMessage) => void,
+  onReconnect?: () => void,
 ): Consumer {
   let stopped = false;
   let connection: ChannelModel | null = null;
   let delay = 1000;
+  let everReady = false;
 
   async function run(): Promise<void> {
     while (!stopped) {
@@ -44,6 +48,8 @@ export function startConsumer(
         brokerConnected.set(1);
         delay = 1000;
         log({ msg: 'broker consumer ready', queue });
+        if (everReady) onReconnect?.();
+        everReady = true;
 
         await closed;
         brokerConnected.set(0);

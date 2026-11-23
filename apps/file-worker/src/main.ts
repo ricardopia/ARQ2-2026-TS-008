@@ -95,7 +95,7 @@ const deps: ProcessJobDeps = {
 
 async function main(): Promise<void> {
   startMetricsServer(config.port);
-  const consumer = await createConsumer(config.rabbitUrl, async (msg: unknown) => {
+  const consumer = createConsumer(config.rabbitUrl, async (msg: unknown) => {
     jobsReceived.inc();
     const envelope = msg as AttachmentJobEnvelope;
     const result = await runJobWithRetry(deps, envelope);

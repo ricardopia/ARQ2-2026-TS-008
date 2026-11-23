@@ -1,0 +1,542 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TaskMaster · Cómo resolvimos las 5 features</title>
+<style>
+:root{
+  --bg:#f6f7f9; --surface:#fff; --surface2:#eef0f4; --text:#1b1f27; --muted:#5b6475; --line:#dde1e8;
+  --accent:#3b5bdb; --accent-soft:#e3e9ff; --ok:#1f8a4c; --ok-soft:#dcf5e6; --warn:#b26a00; --warn-soft:#fff0d6;
+  --bad:#c92a2a; --bad-soft:#ffe3e3; --code:#0f172a; --codetext:#e2e8f0;
+}
+@media (prefers-color-scheme:dark){
+  :root{--bg:#0f1218; --surface:#171b23; --surface2:#1f2530; --text:#e8ebf1; --muted:#9aa4b6; --line:#2a313e;
+  --accent:#7c9cff; --accent-soft:#222c52; --ok:#4cc38a; --ok-soft:#173326; --warn:#f0b34a; --warn-soft:#38290f;
+  --bad:#ff7b7b; --bad-soft:#3a1a1a; --code:#0a0d13; --codetext:#d7dde8;}
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth;scroll-padding-top:64px}
+body{margin:0;background:var(--bg);color:var(--text);font:16px/1.6 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+a{color:var(--accent)}
+code,pre{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:.88em}
+code{background:var(--surface2);padding:.1em .35em;border-radius:4px}
+pre{background:var(--code);color:var(--codetext);padding:14px 16px;border-radius:8px;overflow:auto;margin:0;line-height:1.5}
+pre code{background:none;padding:0}
+.wrap{max-width:1040px;margin:0 auto;padding:0 16px}
+nav{position:sticky;top:0;z-index:10;background:color-mix(in srgb,var(--bg) 88%,transparent);backdrop-filter:blur(8px);border-bottom:1px solid var(--line)}
+nav .wrap{display:flex;gap:4px;overflow-x:auto;padding:10px 16px;align-items:center}
+nav strong{margin-right:10px;white-space:nowrap}
+nav a{white-space:nowrap;text-decoration:none;color:var(--muted);padding:4px 10px;border-radius:999px;font-size:.9rem}
+nav a:hover{background:var(--surface2);color:var(--text)}
+header.hero{padding:56px 0 28px}
+.eyebrow{color:var(--accent);font-weight:600;font-size:.85rem;letter-spacing:.06em;text-transform:uppercase}
+h1{font-size:clamp(1.9rem,4.5vw,2.8rem);line-height:1.15;margin:.3em 0}
+h2{font-size:1.7rem;margin:0 0 .3em}
+h3{font-size:1.05rem;margin:1.4em 0 .4em}
+.lead{color:var(--muted);font-size:1.1rem;max-width:68ch}
+section{padding:44px 0;border-top:1px solid var(--line)}
+.badge{display:inline-block;font-size:.78rem;font-weight:600;padding:2px 9px;border-radius:999px;background:var(--accent-soft);color:var(--accent)}
+.badge.ok{background:var(--ok-soft);color:var(--ok)} .badge.bad{background:var(--bad-soft);color:var(--bad)} .badge.warn{background:var(--warn-soft);color:var(--warn)}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+@media(max-width:760px){.grid2{grid-template-columns:1fr}}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:18px 20px}
+.card.problem{border-left:4px solid var(--bad)} .card.solution{border-left:4px solid var(--ok)}
+.card h4{margin:0 0 6px;font-size:.8rem;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+.card ul{margin:6px 0 0;padding-left:20px}
+.demo{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:18px 20px;margin-top:18px}
+.demo > .title{display:flex;gap:8px;align-items:center;font-weight:600;margin-bottom:12px}
+.btns{display:flex;flex-wrap:wrap;gap:8px;margin:10px 0}
+button{font:inherit;font-size:.9rem;padding:7px 14px;border-radius:8px;border:1px solid var(--line);background:var(--surface2);color:var(--text);cursor:pointer}
+button:hover:not(:disabled){border-color:var(--accent)}
+button.primary{background:var(--accent);color:#fff;border-color:var(--accent)}
+button:disabled{opacity:.4;cursor:not-allowed}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.seg button{border:0;border-radius:0;background:var(--surface)}
+.seg button.on{background:var(--accent);color:#fff}
+.log{background:var(--code);color:var(--codetext);border-radius:8px;padding:10px 14px;min-height:90px;max-height:260px;overflow:auto;font:13px/1.55 ui-monospace,Consolas,monospace}
+.log div{white-space:pre-wrap}
+.log .ok{color:#6ee7a0}.log .bad{color:#ff8f8f}.log .dim{color:#8b95a7}.log .ev{color:#8fb4ff}
+table{border-collapse:collapse;width:100%;font-size:.9rem}
+th,td{border:1px solid var(--line);padding:7px 9px;text-align:center}
+th:first-child,td:first-child{text-align:left}
+th{background:var(--surface2)}
+.state{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin:10px 0}
+.state .box{background:var(--surface2);border-radius:8px;padding:10px 12px}
+.state .box small{display:block;color:var(--muted);font-size:.74rem;text-transform:uppercase;letter-spacing:.05em}
+.state .box b{font-size:1rem;word-break:break-word}
+.flash{animation:fl .6s}
+@keyframes fl{from{background:var(--accent-soft)}to{background:var(--surface2)}}
+.lost{background:var(--bad-soft)!important}
+.flow{display:flex;flex-wrap:wrap;gap:8px;align-items:stretch;margin:12px 0}
+.node{flex:1 1 120px;background:var(--surface2);border:2px solid transparent;border-radius:10px;padding:8px 10px;text-align:center;font-size:.85rem;transition:.25s;opacity:.55}
+.node small{display:block;color:var(--muted);font-size:.72rem}
+.node.on{opacity:1;border-color:var(--accent);background:var(--accent-soft)}
+.node.hot{border-color:var(--warn);background:var(--warn-soft)}
+.stepdesc{min-height:3.2em;margin:6px 0}
+.meter{height:14px;background:var(--surface2);border-radius:999px;overflow:hidden}
+.meter > i{display:block;height:100%;background:var(--ok);transition:width .6s}
+.meter.bad > i{background:var(--bad)}
+.mrow{display:grid;grid-template-columns:200px 1fr 70px;gap:10px;align-items:center;font-size:.85rem;margin:6px 0}
+@media(max-width:600px){.mrow{grid-template-columns:1fr}}
+.clients{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+@media(max-width:600px){.clients{grid-template-columns:1fr}}
+.client{background:var(--surface2);border-radius:10px;padding:10px 12px;font-size:.88rem}
+.client h5{margin:0 0 6px;font-size:.9rem}
+.client .l{font:12px/1.5 ui-monospace,Consolas,monospace;color:var(--muted);min-height:70px}
+.client .l .ok{color:var(--ok)} .client .l .bad{color:var(--bad)}
+.refs{font-size:.88rem;color:var(--muted)}
+.refs code{font-size:.82rem}
+.tag-row{display:flex;gap:6px;flex-wrap:wrap;margin:6px 0 0}
+svg text{font-family:inherit}
+footer{padding:36px 0 60px;color:var(--muted);font-size:.9rem;border-top:1px solid var(--line)}
+</style>
+</head>
+<body>
+<nav><div class="wrap">
+  <strong>TaskMaster</strong>
+  <a href="#contexto">Contexto</a><a href="#arquitectura">Arquitectura</a>
+  <a href="#f1">F1 Roles</a><a href="#f2">F2 Resumen</a><a href="#f3">F3 OCC</a><a href="#f4">F4 Uploads</a><a href="#f5">F5 Notificaciones</a>
+</div></nav>
+
+<div class="wrap">
+<header class="hero" id="contexto">
+  <div class="eyebrow">Caso 8 · ARQ2-2026-TS-008</div>
+  <h1>TaskMaster: cómo resolvimos cada una de las 5 features</h1>
+  <p class="lead">Un Kanban empresarial tipo Trello que sufría dos fallas silenciosas: <b>Lost Update</b> (A edita la descripción, B mueve la tarjeta con un payload viejo y borra el trabajo de A) y <b>caída por RAM</b> (un archivo de 150 MB pasa entero por la API Node.js). Esta página recorre el flujo de cada solución con demos interactivas que replican el comportamiento definido en el <code>spec.md</code> y en el código.</p>
+  <div class="grid2" style="margin-top:22px">
+    <div class="card problem"><h4>Falla 1 · Lost Update</h4>
+      <p style="margin:0">Last-write-wins: el cliente de B reenvía toda la tarjeta cargada antes y pisa la descripción de A sin ningún error.</p></div>
+    <div class="card problem"><h4>Falla 2 · Memoria agotada</h4>
+      <p style="margin:0">El stream completo de 150 MB llega a la RAM del API, que desconecta a quienes solo querían leer tareas.</p></div>
+  </div>
+</header>
+
+<section id="arquitectura">
+  <h2>Arquitectura en una mirada</h2>
+  <p class="lead">Cada feature mapea a contenedores concretos del diagrama C4 y a un ADR. El hilo común: <b>PostgreSQL es la fuente de verdad</b> y todo lo demás (caché, broker, notificaciones) se desacopla de la escritura.</p>
+  <div class="card" style="margin-top:14px;overflow:auto">
+  <svg viewBox="0 0 900 330" width="100%" role="img" aria-label="Diagrama de arquitectura simplificado" style="min-width:680px">
+    <defs><marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" fill="var(--muted)"/></marker></defs>
+    <g fill="var(--surface2)" stroke="var(--line)" stroke-width="1.5">
+      <rect x="10" y="130" width="110" height="60" rx="10"/><rect x="160" y="130" width="120" height="60" rx="10"/>
+      <rect x="330" y="120" width="140" height="80" rx="10" fill="var(--accent-soft)" stroke="var(--accent)"/>
+      <rect x="330" y="10" width="140" height="50" rx="10"/><rect x="330" y="260" width="140" height="50" rx="10"/>
+      <rect x="530" y="120" width="120" height="80" rx="10"/><rect x="700" y="20" width="180" height="55" rx="10"/>
+      <rect x="700" y="130" width="180" height="55" rx="10"/><rect x="700" y="240" width="180" height="55" rx="10"/>
+      <rect x="530" y="10" width="120" height="50" rx="10"/><rect x="530" y="260" width="120" height="50" rx="10"/>
+    </g>
+    <g fill="var(--text)" font-size="13" text-anchor="middle">
+      <text x="65" y="165">Web (React)</text><text x="220" y="158">API Gateway</text><text x="220" y="176" font-size="11" fill="var(--muted)">Nginx · 1 MiB</text>
+      <text x="400" y="154" font-weight="600">Core API ×2</text><text x="400" y="172" font-size="11" fill="var(--muted)">NestJS · OCC · RBAC</text>
+      <text x="400" y="40">Redis</text><text x="400" y="290">PostgreSQL</text>
+      <text x="590" y="154">Outbox Relay</text><text x="590" y="172" font-size="11" fill="var(--muted)">→ RabbitMQ</text>
+      <text x="790" y="52">Realtime (WebSocket)</text><text x="790" y="162">File Worker</text><text x="790" y="272">Object Storage (S3)</text>
+      <text x="590" y="40">Tickets WS</text><text x="590" y="290">outbox_events</text>
+    </g>
+    <g stroke="var(--muted)" stroke-width="1.6" fill="none" marker-end="url(#ar)">
+      <path d="M120 160H158"/><path d="M280 160H328"/><path d="M400 118V62"/><path d="M400 202V258"/>
+      <path d="M470 160H528"/><path d="M650 140C680 120 690 70 698 55"/><path d="M650 160H698"/>
+      <path d="M790 187V238"/><path d="M65 128C65 90 65 85 65 85 M65 85C300 85 690 270 698 268" stroke-dasharray="5 4"/>
+    </g>
+    <text x="400" y="326" text-anchor="middle" font-size="11" fill="var(--muted)">línea punteada: el navegador sube el archivo directo al storage (el API nunca ve los bytes)</text>
+  </svg></div>
+  <div class="tag-row" style="margin-top:12px">
+    <span class="badge">F1 · NestJS + guards</span><span class="badge">F2 · Redis cache</span><span class="badge">F3 · ETag / If-Match</span>
+    <span class="badge">F4 · Presigned POST + worker</span><span class="badge">F5 · Outbox + RabbitMQ + WS</span>
+  </div>
+</section>
+
+<!-- ================= F1 ================= -->
+<section id="f1">
+  <span class="badge">Feature 1</span>
+  <h2>Roles, workspaces y permisos de tablero</h2>
+  <p class="lead">Dos niveles de rol, evaluados <b>en cada request contra PostgreSQL</b> (no viajan en el JWT, así un cambio de rol aplica de inmediato).</p>
+  <div class="grid2">
+    <div class="card problem"><h4>Problema</h4><p style="margin:0">Clientes enterprise necesitan que unos solo lean, otros editen y otros administren, y que quien no pertenece ni siquiera sepa que el recurso existe.</p></div>
+    <div class="card solution"><h4>Solución</h4>
+      <ul><li><code>WorkspaceRole</code>: OWNER / MEMBER · <code>BoardRole</code>: ADMIN / EDITOR / VIEWER</li>
+      <li>El OWNER del workspace es <b>ADMIN implícito</b> de todos sus tableros.</li>
+      <li>Sin rol efectivo → <code>404</code> (no revela existencia); rol insuficiente → <code>403</code>.</li>
+      <li>Hay que ser miembro del workspace antes de entrar a un tablero.</li></ul></div>
+  </div>
+  <div class="demo">
+    <div class="title"><span class="badge">Demo</span> Matriz de autorización (qué responde la API)</div>
+    <div id="f1-matrix"></div>
+    <p class="stepdesc" id="f1-expl" style="color:var(--muted)">Pasa el mouse sobre una celda para ver la regla aplicada.</p>
+  </div>
+  <p class="refs"><b>Código:</b> <code>workspaces/workspace-role.guard.ts</code> (404/403), <code>boards/boards.service.ts#getBoardRole</code> (rol explícito o OWNER⇒ADMIN), <code>boards/internal-board-access.controller.ts</code> (verificación interna usada por Realtime). <b>Spec:</b> FR-1.1 a FR-1.3 · §2.2.</p>
+</section>
+
+<!-- ================= F2 ================= -->
+<section id="f2">
+  <span class="badge">Feature 2</span>
+  <h2>Resumen de tablero optimizado</h2>
+  <p class="lead">Abrir un tablero no debe arrastrar el peso de todas las tareas: solo tarjetas livianas, servidas desde Redis.</p>
+  <div class="grid2">
+    <div class="card problem"><h4>Problema</h4><p style="margin:0">Cada tarea puede tener hasta 20.000 caracteres de descripción más adjuntos. Un tablero de 1.000 tareas cargado completo es enorme y lento.</p></div>
+    <div class="card solution"><h4>Solución</h4>
+      <ul><li><code>GET /boards/{id}/summary</code> devuelve columnas + <code>TaskCard</code> (id, título, asignados, fecha, posición, versión).</li>
+      <li>La consulta usa <code>select: TASK_CARD_COLUMNS</code>: <b>nunca lee <code>description</code></b>.</li>
+      <li>Caché <code>board-summary:{id}</code> en Redis, TTL 300 s; se borra tras cada escritura que cambia el resumen.</li>
+      <li><code>myRole</code> se calcula por request y no se cachea. Si Redis cae, se sirve desde PostgreSQL.</li></ul></div>
+  </div>
+  <div class="demo">
+    <div class="title"><span class="badge">Demo</span> Caché e invalidación</div>
+    <div class="btns">
+      <button class="primary" id="f2-get">GET summary (Carol)</button>
+      <button id="f2-move">Bob mueve la tarea 42</button>
+      <button id="f2-redis">Redis: <span id="f2-redis-s">arriba</span></button>
+      <button id="f2-reset">Reiniciar</button>
+    </div>
+    <div class="state">
+      <div class="box"><small>Clave Redis</small><b id="f2-key">vacía</b></div>
+      <div class="box"><small>Consultas a PostgreSQL</small><b id="f2-pg">0</b></div>
+      <div class="box"><small>Hits / Miss</small><b id="f2-hm">0 / 0</b></div>
+      <div class="box"><small>Tarea 42 vista por Carol</small><b id="f2-seen">To Do · v7</b></div>
+    </div>
+    <div class="log" id="f2-log"></div>
+    <h3>Peso del payload (caso máximo del spec: 1.000 tareas)</h3>
+    <div class="mrow"><span>Tareas completas (20.000 car. c/u)</span><div class="meter bad"><i style="width:100%"></i></div><b>≈ 20 MB</b></div>
+    <div class="mrow"><span>Resumen (solo TaskCard ≈ 200 B)</span><div class="meter"><i style="width:1.2%"></i></div><b>≈ 200 KB</b></div>
+    <p class="refs" style="margin-top:4px">Cifras ilustrativas calculadas con los límites del spec, no medidas. La meta medible es NFR-1: p95 ≤ 100 ms con hit y ≤ 500 ms con miss a 50 req/s (k6).</p>
+  </div>
+  <p class="refs"><b>Código:</b> <code>boards/boards.service.ts#getSummary / buildSummary</code>, <code>boards/board-summary.controller.ts</code>, invalidación en <code>tasks/tasks.service.ts</code> (<code>boards.invalidateSummary</code>). <b>Spec:</b> FR-2.1, FR-2.2 · §2.5.</p>
+</section>
+
+<!-- ================= F3 ================= -->
+<section id="f3">
+  <span class="badge">Feature 3</span>
+  <h2>Control de concurrencia optimista (OCC)</h2>
+  <p class="lead">Es el corazón del caso. Cada tarea tiene un <code>version</code> entero que viaja como <code>ETag</code>; toda escritura debe confirmar con <code>If-Match</code> la versión que vio.</p>
+  <div class="grid2">
+    <div class="card problem"><h4>Problema</h4><p style="margin:0">B reenvía el payload completo cargado antes y la API lo acepta: la descripción de A desaparece sin error (last-write-wins).</p></div>
+    <div class="card solution"><h4>Solución (ADR 001)</h4>
+      <ul><li>Escritura atómica en SQL: <code>UPDATE … WHERE id=$1 AND version=$2</code>, correcto con N réplicas.</li>
+      <li>0 filas afectadas → <code>412 VERSION_CONFLICT</code> con la tarea actual. Sin <code>If-Match</code> → <code>428</code>.</li>
+      <li>Escrituras <b>parciales por intención</b>: <code>PATCH /tasks/{id}</code> (contenido) y <code>PATCH /tasks/{id}/position</code> (mover). Mover nunca toca la descripción.</li>
+      <li>Rechaza campos desconocidos (<code>400</code>); no existe <code>PUT</code>.</li></ul></div>
+  </div>
+  <div class="demo">
+    <div class="title"><span class="badge">Demo</span> Reproduce el escenario del caso</div>
+    <div class="btns"><span style="align-self:center;color:var(--muted);font-size:.9rem">Modo:</span>
+      <div class="seg"><button id="f3-m-off">Sin OCC (antes)</button><button id="f3-m-on" class="on">Con OCC (ahora)</button></div></div>
+    <div class="btns">
+      <button class="primary" id="f3-s1">1 · A y B abren la tarea (v7)</button>
+      <button id="f3-s2" disabled>2 · A guarda la descripción</button>
+      <button id="f3-s3" disabled>3 · B mueve a “In Progress”</button>
+      <button id="f3-s4" disabled>4 · B reintenta con la versión actual</button>
+      <button id="f3-r">Reiniciar</button>
+    </div>
+    <div class="state">
+      <div class="box" id="f3-b-col"><small>Columna (servidor)</small><b id="f3-col">To Do</b></div>
+      <div class="box" id="f3-b-desc"><small>Descripción (servidor)</small><b id="f3-desc">Build the login form.</b></div>
+      <div class="box"><small>Versión / ETag</small><b id="f3-ver">7</b></div>
+      <div class="box"><small>Veredicto</small><b id="f3-verdict">—</b></div>
+    </div>
+    <div class="log" id="f3-log"></div>
+  </div>
+<pre style="margin-top:14px"><code>UPDATE tasks
+SET    description = $3, updated_by = $4, updated_at = now(), version = version + 1
+WHERE  id = $1 AND version = $2        -- 0 filas ⇒ 412 VERSION_CONFLICT</code></pre>
+  <p class="refs"><b>Código:</b> <code>tasks/tasks.service.ts#update / move</code> (<code>manager.update(Task, {id, version: expected}, …)</code>), <code>tasks/tasks.controller.ts</code> (ETag, 428, <code>INVALID_IF_MATCH</code>). <b>Spec:</b> FR-3.1 a FR-3.3 · ADR 001.</p>
+</section>
+
+<!-- ================= F4 ================= -->
+<section id="f4">
+  <span class="badge">Feature 4</span>
+  <h2>Subida pesada fuera de la API</h2>
+  <p class="lead">Los 150 MB nunca tocan Node.js: el navegador sube directo al storage con un POST pre-firmado y un worker procesa el archivo en segundo plano.</p>
+  <div class="grid2">
+    <div class="card problem"><h4>Problema</h4><p style="margin:0">El stream completo entra por la API, llena la RAM y desconecta a todo el equipo.</p></div>
+    <div class="card solution"><h4>Solución (ADR 002)</h4>
+      <ul><li>La API solo autoriza (EDITOR+), crea el adjunto <code>PENDING</code> y firma una política: clave, <code>Content-Type</code> y tamaño exacto, 15 min.</li>
+      <li>El gateway rechaza cuerpos &gt; 1 MiB (<code>413</code>).</li>
+      <li><code>confirm</code> verifica el objeto (HEAD) y encola el job vía <b>outbox</b>, idempotente (un solo job aunque confirmes dos veces).</li>
+      <li>El <b>File Worker</b> valida la firma del archivo, genera preview WebP (≤512 px) y cierra el estado. Reintentos 10 s / 60 s / 300 s y luego DLQ.</li></ul></div>
+  </div>
+  <div class="demo">
+    <div class="title"><span class="badge">Demo</span> Recorrido de una subida de 150 MB</div>
+    <div class="btns">
+      <button id="f4-prev">← Anterior</button><button class="primary" id="f4-next">Siguiente →</button><button id="f4-reset">Reiniciar</button>
+      <div class="seg" style="margin-left:auto"><button id="f4-ok" class="on">Camino feliz</button><button id="f4-fail">Falla el storage</button></div>
+    </div>
+    <div class="flow" id="f4-flow"></div>
+    <div class="stepdesc" id="f4-desc"></div>
+    <div class="state">
+      <div class="box"><small>Estado del adjunto</small><b id="f4-status">—</b></div>
+      <div class="box"><small>Paso</small><b id="f4-step">0</b></div>
+    </div>
+    <div class="mrow"><span>RAM del API con nuestro diseño</span><div class="meter"><i id="f4-m-new" style="width:4%"></i></div><b id="f4-t-new">baseline</b></div>
+    <div class="mrow"><span>RAM del API si el archivo pasara por él</span><div class="meter bad"><i id="f4-m-old" style="width:4%"></i></div><b id="f4-t-old">baseline</b></div>
+    <p class="refs" style="margin-top:4px">Los medidores son ilustrativos del contraste de diseño; la verificación real es NFR-2 (10 uploads de 150 MB, RAM del API ≤ +50 MB).</p>
+  </div>
+  <p class="refs"><b>Código:</b> <code>attachments/attachments.service.ts</code> (<code>issueUpload</code> con <code>createPresignedPost</code>, <code>confirm</code> con claim atómico + outbox), <code>file-worker/src/processor.ts</code> (<code>runJob</code>, <code>RETRY_DELAYS_MS</code>, limpieza de huérfanos), <code>file-worker/src/rabbit.ts</code> (DLQ). <b>Spec:</b> FR-4.1 a FR-4.4 · §2.7 · ADR 002.</p>
+</section>
+
+<!-- ================= F5 ================= -->
+<section id="f5">
+  <span class="badge">Feature 5</span>
+  <h2>Notificaciones web de cambios en el tablero</h2>
+  <p class="lead">Quien mira un tablero se entera de las modificaciones en segundos y ningún evento se pierde, aunque el broker falle justo después del commit.</p>
+  <div class="grid2">
+    <div class="card problem"><h4>Problema</h4><p style="margin:0">Publicar directo al broker tras el commit pierde el evento si algo falla entre ambos pasos (dual-write). Además solo deben enterarse usuarios autorizados.</p></div>
+    <div class="card solution"><h4>Solución (ADR 003)</h4>
+      <ul><li><b>Outbox transaccional</b>: el evento se inserta en <code>outbox_events</code> en la <i>misma</i> transacción que el cambio.</li>
+      <li>El <b>Outbox Relay</b> publica a RabbitMQ con reintentos y backoff.</li>
+      <li>El <b>Realtime Service</b> abre WebSockets con un ticket de un solo uso (30 s, <code>GETDEL</code> en Redis), valida acceso al suscribirse y envía solo a suscriptores de ese <code>boardId</code>.</li>
+      <li>Entrega at-least-once: el cliente deduplica por <code>eventId</code> e ignora versiones viejas.</li></ul></div>
+  </div>
+  <div class="demo">
+    <div class="title"><span class="badge">Demo</span> Del commit al navegador</div>
+    <div class="btns">
+      <button class="primary" id="f5-move">Alice mueve la tarea 42</button>
+      <button id="f5-relay">Relay: <span id="f5-relay-s">activo</span></button>
+      <button id="f5-dup">Reenviar duplicado</button>
+      <button id="f5-old">Enviar evento viejo (v8)</button>
+      <button id="f5-reset">Reiniciar</button>
+    </div>
+    <div class="flow" id="f5-flow"></div>
+    <div class="state">
+      <div class="box"><small>Filas pendientes en outbox</small><b id="f5-pend">0</b></div>
+      <div class="box"><small>Versión de la tarea</small><b id="f5-ver">v8</b></div>
+    </div>
+    <div class="clients">
+      <div class="client"><h5>Bob · suscrito a Platform</h5><div class="l" id="f5-bob"></div></div>
+      <div class="client"><h5>Dave · sin acceso (subscribe → FORBIDDEN)</h5><div class="l" id="f5-dave">subscribe → error FORBIDDEN
+(no recibe ningún evento)</div></div>
+    </div>
+    <p class="refs" style="margin-top:8px">Prueba: apaga el relay, mueve la tarea (la escritura responde bien y la fila queda en el outbox) y vuelve a encenderlo: el evento llega sin intervención manual.</p>
+  </div>
+  <p class="refs"><b>Código:</b> <code>tasks/tasks.service.ts#emitTaskEvent</code> (INSERT en outbox dentro de la transacción), <code>outbox-relay/src/relay.ts</code>, <code>realtime-service/src/{tickets,session,hub}.ts</code>. <b>Spec:</b> FR-5.1 a FR-5.4 · §3.5 · ADR 003.</p>
+</section>
+
+<footer>
+  <b>Observabilidad (NFR-6):</b> métricas Prometheus por servicio, logs JSON con <code>correlationId</code> en Loki y dashboards de Grafana (<code>infrastructure/grafana</code>) más alertas cuando la DLQ no está vacía.
+  <br>Fuente de verdad: <code>docs/spec.md</code> y <code>docs/adrs/001–003</code>.
+</footer>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const el = (t, c, h) => { const e = document.createElement(t); if (c) e.className = c; if (h != null) e.innerHTML = h; return e; };
+function logTo(id, cls, text){ const l=$(id); const d=el('div',cls,null); d.textContent=text; l.appendChild(d); l.scrollTop=l.scrollHeight; }
+function flash(e){ e.classList.remove('flash'); void e.offsetWidth; e.classList.add('flash'); }
+
+/* ============ F1 ============ */
+(function(){
+  const users = [
+    {n:'Alice', d:'Workspace MEMBER · tablero EDITOR', ws:'MEMBER', b:'EDITOR'},
+    {n:'Bob',   d:'Workspace OWNER · tablero ADMIN',   ws:'OWNER',  b:'ADMIN'},
+    {n:'Carol', d:'Workspace MEMBER · tablero VIEWER', ws:'MEMBER', b:'VIEWER'},
+    {n:'Dave',  d:'Sin acceso a Acme',                 ws:null,     b:null}
+  ];
+  const rank = {VIEWER:1, EDITOR:2, ADMIN:3};
+  const actions = [
+    {n:'Leer resumen / tarea', kind:'board', min:'VIEWER'},
+    {n:'Editar o mover tarea', kind:'board', min:'EDITOR'},
+    {n:'Pedir subida de archivo', kind:'board', min:'EDITOR'},
+    {n:'Agregar miembro al tablero', kind:'board', min:'ADMIN'},
+    {n:'Crear tablero', kind:'ws', min:'MEMBER'},
+    {n:'Agregar miembro al workspace', kind:'ws', min:'OWNER'}
+  ];
+  function res(u,a){
+    if(!u.ws) return {c:404, why:`${u.n} no tiene rol efectivo: 404 (la API no revela que el recurso existe).`};
+    if(a.kind==='ws'){
+      const ok = a.min==='MEMBER' || u.ws==='OWNER';
+      return ok ? {c:200, why:`${u.n} es ${u.ws} del workspace: permitido.`} : {c:403, why:`${u.n} es ${u.ws}; esta acción exige OWNER del workspace.`};
+    }
+    const ok = rank[u.b] >= rank[a.min];
+    return ok ? {c:200, why:`${u.n} tiene rol ${u.b} (≥ ${a.min}): permitido.`} : {c:403, why:`${u.n} es ${u.b} y se requiere ${a.min} o superior: 403.`};
+  }
+  const t = el('table');
+  t.innerHTML = '<tr><th>Acción</th>'+users.map(u=>`<th>${u.n}<br><small style="font-weight:400;color:var(--muted)">${u.d}</small></th>`).join('')+'</tr>';
+  actions.forEach(a=>{
+    const tr = el('tr'); tr.appendChild(el('td',null,a.n));
+    users.forEach(u=>{
+      const r=res(u,a), td=el('td');
+      td.appendChild(el('span','badge '+(r.c===200?'ok':r.c===403?'warn':'bad'), r.c===200?'200 OK':r.c));
+      td.onmouseenter=()=>$('f1-expl').textContent=r.why;
+      tr.appendChild(td);
+    });
+    t.appendChild(tr);
+  });
+  $('f1-matrix').appendChild(t);
+})();
+
+/* ============ F2 ============ */
+(function(){
+  let s;
+  function init(){ s={cache:false, up:true, pg:0, hit:0, miss:0, col:'To Do', ver:7}; $('f2-log').innerHTML=''; render(); logTo('f2-log','dim','Caché vacío. Carol (VIEWER) y Bob (ADMIN) tienen acceso al tablero Platform.'); }
+  function render(){
+    $('f2-key').textContent = s.cache ? 'board-summary:b7e4… (TTL 300 s)' : 'vacía';
+    $('f2-pg').textContent=s.pg; $('f2-hm').textContent=s.hit+' / '+s.miss;
+    $('f2-seen').textContent = '—';
+    $('f2-redis-s').textContent = s.up?'arriba':'CAÍDO';
+  }
+  $('f2-get').onclick=()=>{
+    logTo('f2-log','dim','GET /boards/{id}/summary  →  getBoardRole(Carol) = VIEWER (siempre se verifica)');
+    if(!s.up){ s.pg++; logTo('f2-log','bad','Redis no responde → fallback a PostgreSQL (SELECT sin description)'); }
+    else if(s.cache){ s.hit++; logTo('f2-log','ok','HIT en Redis → sin consultar la tabla tasks'); }
+    else { s.miss++; s.pg++; s.cache=true; logTo('f2-log','ev','MISS → PostgreSQL: columnas + tasks (select solo campos de TaskCard)'); logTo('f2-log','ok','SET board-summary:{id} EX 300 (sin myRole)'); }
+    logTo('f2-log','dim',`200 · myRole=VIEWER calculado ahora · tarea 42 en ${s.col} v${s.ver}`);
+    $('f2-seen').textContent=`${s.col} · v${s.ver}`; flash($('f2-seen').parentNode);
+    $('f2-key').textContent = s.cache ? 'board-summary:b7e4… (TTL 300 s)' : 'vacía';
+    $('f2-pg').textContent=s.pg; $('f2-hm').textContent=s.hit+' / '+s.miss;
+  };
+  $('f2-move').onclick=()=>{
+    if(s.col==='In Progress'){ logTo('f2-log','dim','La tarea ya está en In Progress (reinicia para repetir).'); return; }
+    s.col='In Progress'; s.ver=9;
+    logTo('f2-log','ev','PATCH /tasks/42/position (If-Match "8") → 200, versión 9');
+    if(s.up){ s.cache=false; logTo('f2-log','ok','DEL board-summary:{id}  (invalidate tras commit)'); }
+    else logTo('f2-log','bad','Redis caído: no se pudo invalidar (el TTL de 300 s es la red de seguridad)');
+    render(); $('f2-seen').textContent='(vuelve a pedir el resumen)';
+    $('f2-key').textContent = s.cache ? 'board-summary:b7e4… (TTL 300 s)' : 'vacía';
+  };
+  $('f2-redis').onclick=()=>{ s.up=!s.up; logTo('f2-log',s.up?'ok':'bad', s.up?'Redis restablecido.':'Redis caído: el resumen se sirve desde PostgreSQL.'); $('f2-redis-s').textContent=s.up?'arriba':'CAÍDO'; };
+  $('f2-reset').onclick=init; init();
+})();
+
+/* ============ F3 ============ */
+(function(){
+  let occ=true, S, A, B, st;
+  function setMode(v){ occ=v; $('f3-m-on').classList.toggle('on',v); $('f3-m-off').classList.toggle('on',!v); reset(); }
+  function reset(){
+    S={col:'To Do', desc:'Build the login form.', ver:7}; A=B=null; st=0;
+    $('f3-log').innerHTML=''; $('f3-verdict').textContent='—';
+    ['f3-b-col','f3-b-desc'].forEach(i=>$(i).classList.remove('lost'));
+    btn(1,0,0,0); render();
+    logTo('f3-log','dim', occ?'Modo CON OCC: cada PATCH exige If-Match con la versión vista.':'Modo SIN OCC: el cliente reenvía la tarjeta completa (last-write-wins).');
+  }
+  function btn(a,b,c,d){ $('f3-s1').disabled=!a; $('f3-s2').disabled=!b; $('f3-s3').disabled=!c; $('f3-s4').disabled=!d; }
+  function render(){ $('f3-col').textContent=S.col; $('f3-desc').textContent=S.desc; $('f3-ver').textContent=S.ver; }
+  $('f3-m-on').onclick=()=>setMode(true); $('f3-m-off').onclick=()=>setMode(false); $('f3-r').onclick=reset;
+  $('f3-s1').onclick=()=>{
+    A={...S}; B={...S};
+    logTo('f3-log','dim','GET /tasks/42 (Alice) → 200 ETag "7"');
+    logTo('f3-log','dim','GET /tasks/42 (Bob)   → 200 ETag "7"   [Bob guarda su copia en memoria]');
+    btn(0,1,0,0);
+  };
+  $('f3-s2').onclick=()=>{
+    const newDesc='Use OAuth2 + PKCE.';
+    if(occ){
+      logTo('f3-log','ev','Alice  PATCH /tasks/42  If-Match "7"  { description }');
+      logTo('f3-log','ok','UPDATE … WHERE version=7 → 1 fila → 200 ETag "8"  (evento task.updated en outbox)');
+      S.ver=8;
+    } else {
+      logTo('f3-log','ev','Alice  PUT /tasks/42  { …tarea completa con la nueva descripción }');
+      logTo('f3-log','ok','200 (se guarda sin condición)');
+    }
+    S.desc=newDesc; render(); flash($('f3-b-desc')); btn(0,0,1,0);
+  };
+  $('f3-s3').onclick=()=>{
+    if(occ){
+      logTo('f3-log','ev','Bob  PATCH /tasks/42/position  If-Match "7"  { columnId: In Progress }');
+      logTo('f3-log','bad','UPDATE … WHERE version=7 → 0 filas → 412 VERSION_CONFLICT');
+      logTo('f3-log','dim',`      body.current = { version: ${S.ver}, description: "${S.desc}" }`);
+      $('f3-verdict').textContent='412: nada se sobrescribió';
+      btn(0,0,0,1);
+    } else {
+      logTo('f3-log','ev','Bob  PUT /tasks/42  { …tarjeta COMPLETA que cargó antes, con columna nueva }');
+      logTo('f3-log','bad','200 OK — pero el payload traía la descripción vieja');
+      S.col='In Progress'; S.desc=B.desc; S.ver=8;
+      $('f3-b-desc').classList.add('lost'); $('f3-verdict').textContent='LOST UPDATE: se perdió el texto de Alice';
+      logTo('f3-log','bad','Descripción de Alice sobrescrita en silencio. Nadie recibió un error.');
+      btn(0,0,0,0);
+    }
+    render(); flash($('f3-b-col'));
+  };
+  $('f3-s4').onclick=()=>{
+    logTo('f3-log','ev',`Bob  PATCH /tasks/42/position  If-Match "${S.ver}"  { columnId: In Progress }`);
+    S.col='In Progress'; S.ver++;
+    logTo('f3-log','ok',`200 ETag "${S.ver}" — solo cambian column_id, position, version, updated_by`);
+    $('f3-verdict').textContent='Ambos cambios conservados';
+    render(); flash($('f3-b-col')); btn(0,0,0,0);
+  };
+  reset();
+})();
+
+/* ============ generic flow stepper ============ */
+function makeFlow(flowId, nodes){
+  const box=$(flowId); box.innerHTML='';
+  const map={};
+  nodes.forEach(n=>{ const d=el('div','node',`${n.t}<small>${n.s}</small>`); box.appendChild(d); map[n.id]=d; });
+  return (on, hot=[])=>{ Object.entries(map).forEach(([k,d])=>{ d.classList.toggle('on',on.includes(k)); d.classList.toggle('hot',hot.includes(k)); }); };
+}
+
+/* ============ F4 ============ */
+(function(){
+  const setNodes = makeFlow('f4-flow',[
+    {id:'web',t:'Navegador',s:'React'},{id:'api',t:'Core API',s:'solo metadatos'},
+    {id:'s3',t:'Object Storage',s:'S3 / RustFS'},{id:'q',t:'Outbox → RabbitMQ',s:'file-jobs'},
+    {id:'w',t:'File Worker',s:'valida + preview'},{id:'dlq',t:'DLQ',s:'tras 3 reintentos'}
+  ]);
+  const MB=157286400;
+  const happy=[
+    {on:[], st:'—', d:'Alice quiere adjuntar <code>homepage-v3.psd</code> (150 MB). Pulsa “Siguiente”.', mem:[4,4]},
+    {on:['web','api'], st:'PENDING', d:'<b>1 · POST /tasks/42/attachments</b> con nombre, tipo y tamaño (JSON pequeño). La API verifica rol EDITOR, tipo permitido y ≤ 250 MiB, crea el adjunto <b>PENDING</b> y devuelve un POST pre-firmado válido 15 min (clave + Content-Type + tamaño exacto). La versión de la tarea no cambia.', mem:[4,4]},
+    {on:['web','s3'], hot:['s3'], st:'PENDING', d:'<b>2 · Subida directa.</b> El navegador envía los 150 MB a Object Storage como multipart con los campos firmados. <b>Los bytes no pasan por el gateway ni por Core API</b>; si pasaran, el gateway respondería 413 (límite 1 MiB).', mem:[4,100]},
+    {on:['web','api','s3'], st:'PENDING', d:'<b>3 · POST /attachments/{id}/confirm.</b> La API hace HEAD al objeto, comprueba que el tamaño coincide y, en <i>una</i> transacción, marca <code>upload_confirmed_at</code> e inserta el job <code>attachment.process</code> en el outbox. Responde <b>202</b>. Confirmar dos veces crea un solo job.', mem:[5,100]},
+    {on:['q','w'], st:'PROCESSING', d:'<b>4 · El worker consume el job.</b> PENDING → PROCESSING (transición guardada en SQL). Lee el objeto en streaming (nunca entero en memoria) y verifica que la firma del archivo coincide con el tipo declarado.', mem:[5,100]},
+    {on:['w','s3'], st:'PROCESSING', d:'<b>5 · Preview.</b> Si es imagen (png/jpeg/webp/gif) genera un WebP de máximo 512 px y lo guarda. Un .psd no genera preview.', mem:[5,100]},
+    {on:['w','api'], st:'COMPLETED', d:'<b>6 · COMPLETED.</b> Actualiza el estado y escribe <code>attachment.processed</code> en el outbox en la misma transacción, así los suscritos al tablero lo reciben por WebSocket (F5). El cliente también puede consultar <code>GET /attachments/{id}</code>.', mem:[5,100]}
+  ];
+  const fail=[
+    happy[0],happy[1],happy[2],happy[3],
+    {on:['q','w'], hot:['w'], st:'PROCESSING', d:'<b>4 · El worker falla.</b> El storage no responde (error temporal). Reintento 1 tras 10 s.', mem:[5,100]},
+    {on:['q','w'], hot:['w'], st:'PROCESSING', d:'<b>5 · Reintentos 2 y 3</b> tras 60 s y 300 s. Los errores permanentes (firma incorrecta, tamaño distinto) no se reintentan: fallan en el primer intento.', mem:[5,100]},
+    {on:['w','dlq'], hot:['dlq'], st:'FAILED · PROCESSING_ERROR', d:'<b>6 · Dead-letter.</b> Agotados los reintentos el mensaje va a <code>file-worker.attachment-process.dlq</code>, el adjunto queda FAILED/PROCESSING_ERROR, se publica <code>attachment.processed</code> y la alerta de Prometheus avisa a operaciones. Además, un adjunto PENDING sin confirmar a los 60 min se limpia como UPLOAD_NOT_CONFIRMED.', mem:[5,100]}
+  ];
+  let ok=true, i=0;
+  function render(){
+    const steps=ok?happy:fail, s=steps[i];
+    setNodes(s.on, s.hot||[]);
+    $('f4-desc').innerHTML=s.d; $('f4-status').textContent=s.st; $('f4-step').textContent=i+' / '+(steps.length-1);
+    $('f4-m-new').style.width=s.mem[0]+'%'; $('f4-m-old').style.width=s.mem[1]+'%';
+    $('f4-t-new').textContent = i===0?'baseline':'≈ baseline';
+    $('f4-t-old').textContent = s.mem[1]>50?'+150 MB ⚠':'baseline';
+    $('f4-prev').disabled=i===0; $('f4-next').disabled=i===steps.length-1;
+  }
+  $('f4-next').onclick=()=>{i++;render()}; $('f4-prev').onclick=()=>{i--;render()};
+  $('f4-reset').onclick=()=>{i=0;render()};
+  $('f4-ok').onclick=()=>{ok=true;i=0;$('f4-ok').classList.add('on');$('f4-fail').classList.remove('on');render()};
+  $('f4-fail').onclick=()=>{ok=false;i=0;$('f4-fail').classList.add('on');$('f4-ok').classList.remove('on');render()};
+  render();
+})();
+
+/* ============ F5 ============ */
+(function(){
+  const setNodes = makeFlow('f5-flow',[
+    {id:'db',t:'PostgreSQL',s:'tarea + outbox (1 tx)'},{id:'rl',t:'Outbox Relay',s:'poll + confirms'},
+    {id:'mq',t:'RabbitMQ',s:'domain-events'},{id:'rt',t:'Realtime',s:'hub por boardId'},{id:'ws',t:'WebSocket',s:'navegadores'}
+  ]);
+  let relay, outbox, ver, bob, last, n;
+  function reset(){ relay=true; outbox=[]; ver=8; bob={seen:new Set(), ver:8, lines:[]}; last=null; n=0;
+    $('f5-relay-s').textContent='activo'; setNodes([]); render(); bobLine('conectado con ticket (GETDEL) · subscribe → subscribed · tarea v8',''); }
+  function bobLine(t,c){ bob.lines.push(`<div class="${c}">${t}</div>`); if(bob.lines.length>8) bob.lines.shift(); render(); }
+  function render(){ $('f5-pend').textContent=outbox.length; $('f5-ver').textContent='v'+ver; $('f5-bob').innerHTML=bob.lines.join(''); }
+  function deliver(ev){
+    if(bob.seen.has(ev.eventId)){ bobLine(`↩ ${ev.eventId} duplicado → ignorado (eventId ya visto)`,'bad'); return; }
+    if(ev.version<=bob.ver){ bobLine(`↩ ${ev.eventId} v${ev.version} ≤ v${bob.ver} → ignorado (evento viejo)`,'bad'); return; }
+    bob.seen.add(ev.eventId); bob.ver=ev.version;
+    bobLine(`✔ task.moved ${ev.eventId} → v${ev.version} aplicado`,'ok');
+  }
+  function flush(){
+    if(!relay||!outbox.length) return;
+    outbox.forEach(ev=>{ ev.published=true; deliver(ev); }); outbox=[];
+    setNodes(['db','rl','mq','rt','ws']); render();
+  }
+  $('f5-move').onclick=()=>{
+    ver++; n++; last={eventId:'e'+n.toString().padStart(3,'0'), version:ver};
+    setNodes(['db'],['db']); outbox.push(last); render();
+    if(relay) setTimeout(flush,350); else bobLine('(relay caído: la escritura respondió 200 y la fila espera en outbox_events)','');
+  };
+  $('f5-relay').onclick=()=>{ relay=!relay; $('f5-relay-s').textContent=relay?'activo':'CAÍDO';
+    if(relay){ bobLine('relay reiniciado: publica las filas pendientes',''); flush(); } };
+  $('f5-dup').onclick=()=>{ if(last) deliver(last); else bobLine('aún no hay evento para duplicar',''); };
+  $('f5-old').onclick=()=>{ n++; deliver({eventId:'e'+n.toString().padStart(3,'0')+'x', version:8}); };
+  $('f5-reset').onclick=reset; reset();
+})();
+</script>
+</body>
+</html>

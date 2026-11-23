@@ -188,6 +188,12 @@ const consumer = startConsumer(config.rabbitUrl, config.instanceId, (msg) => {
   } finally {
     span.end();
   }
+}, () => {
+  // Broker was lost and the per-instance queue was recreated: events in the gap
+  // were not delivered. 1012 (service restart) makes every client reconnect,
+  // subscribe again and reload the board summary, so nothing stays stale.
+  log({ msg: 'broker restored, asking clients to resync', clients: wss.clients.size });
+  for (const ws of wss.clients) ws.close(1012);
 });
 
 server.listen(config.port, '0.0.0.0', () => log({ msg: 'realtime service listening', port: config.port, instanceId: config.instanceId }));

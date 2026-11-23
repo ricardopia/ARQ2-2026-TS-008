@@ -28,6 +28,18 @@ services:
     depends_on:
       - core-api
       - realtime-service
+      - web
+    networks:
+      - taskmaster
+
+  web:
+    image: nginx:stable-alpine
+    container_name: taskmaster-web
+    restart: unless-stopped
+    expose:
+      - "80"
+    volumes:
+      - ./apps/web/public:/usr/share/nginx/html:ro
     networks:
       - taskmaster
 
