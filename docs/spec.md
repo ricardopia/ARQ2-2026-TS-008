@@ -371,6 +371,7 @@ stateDiagram-v2
 | `POST /auth/register` | Create an account | Public | F1 |
 | `POST /auth/login` | Get an access token | Public | F1 |
 | `POST /workspaces` | Create a workspace (caller becomes `OWNER`) | Any user | F1 |
+| `GET /workspaces` | List my workspaces with the boards I can open | Any user | F1 |
 | `POST /workspaces/{workspaceId}/members` | Add a registered user to the workspace | Workspace `OWNER` | F1 |
 | `POST /workspaces/{workspaceId}/boards` | Create a board with three default columns (caller becomes board `ADMIN`) | Workspace member | F1 |
 | `POST /boards/{boardId}/members` | Give a workspace member a board role | Board `ADMIN` | F1 |

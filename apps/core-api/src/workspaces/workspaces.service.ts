@@ -71,6 +71,49 @@ export class WorkspacesService {
     return member?.role ?? null;
   }
 
+  /**
+   * The caller's workspaces with the boards they can open, for the web
+   * sidebar. A board appears with an explicit board membership or an OWNER
+   * workspace role — the same rule as BoardsService.getBoardRole, so a listed
+   * board is always openable (FR-1.3: nothing reveals a board without a role).
+   */
+  async list(userId: string) {
+    const rows: Array<{
+      ws_id: string;
+      ws_name: string;
+      my_role: WorkspaceRole;
+      board_id: string | null;
+      board_name: string | null;
+    }> = await this.dataSource.query(
+      `SELECT w.id AS ws_id, w.name AS ws_name, m.role AS my_role,
+              b.id AS board_id, b.name AS board_name
+         FROM workspace_members m
+         JOIN workspaces w ON w.id = m.workspace_id
+         LEFT JOIN boards b ON b.workspace_id = m.workspace_id
+              AND (m.role = 'OWNER'
+                   OR EXISTS (SELECT 1 FROM board_members bm
+                               WHERE bm.board_id = b.id AND bm.user_id = m.user_id))
+        WHERE m.user_id = $1
+        ORDER BY w.created_at, b.created_at`,
+      [userId],
+    );
+    const result: Array<{
+      id: string;
+      name: string;
+      myRole: WorkspaceRole;
+      boards: Array<{ id: string; name: string }>;
+    }> = [];
+    for (const row of rows) {
+      let ws = result.find((w) => w.id === row.ws_id);
+      if (!ws) {
+        ws = { id: row.ws_id, name: row.ws_name, myRole: row.my_role, boards: [] };
+        result.push(ws);
+      }
+      if (row.board_id) ws.boards.push({ id: row.board_id, name: row.board_name! });
+    }
+    return result;
+  }
+
   /** Adds a registered user to the workspace. Callers are checked by the guard. */
   async addMember(
     workspaceId: string,

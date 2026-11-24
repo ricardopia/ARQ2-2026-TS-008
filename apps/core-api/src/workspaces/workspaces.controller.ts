@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Get,
   HttpCode,
   HttpStatus,
   Param,
@@ -26,6 +27,12 @@ export class WorkspacesController {
     @Body() dto: CreateWorkspaceDto,
   ) {
     return this.workspaces.create(user.sub, dto);
+  }
+
+  /** GET /workspaces: the caller's workspaces with their visible boards. */
+  @Get()
+  list(@CurrentUser() user: AccessTokenClaims) {
+    return this.workspaces.list(user.sub);
   }
 
   /** POST /workspaces/{id}/members: workspace OWNER only (spec section 2.2). */

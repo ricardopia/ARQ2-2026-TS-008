@@ -42,7 +42,7 @@ describe('workspaces authorization', () => {
   let memberRepo: { findOneBy: jest.Mock; insert: jest.Mock };
   let userRepo: { findOneBy: jest.Mock };
   let manager: { save: jest.Mock };
-  let dataSource: { transaction: jest.Mock; getRepository: jest.Mock };
+  let dataSource: { transaction: jest.Mock; getRepository: jest.Mock; query: jest.Mock };
 
   beforeEach(async () => {
     jest.clearAllMocks();
@@ -78,6 +78,7 @@ describe('workspaces authorization', () => {
       transaction: jest.fn(
         async (cb: (m: typeof manager) => Promise<unknown>) => cb(manager),
       ),
+      query: jest.fn().mockResolvedValue([]),
       getRepository: jest.fn((target: unknown) => {
         if (target === WorkspaceMember) return memberRepo;
         if (target === User) return userRepo;
@@ -350,6 +351,38 @@ describe('workspaces authorization', () => {
       expect(response.status).toBe(400);
       expect(response.body.code).toBe('VALIDATION_ERROR');
       expect(memberRepo.insert).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('GET /workspaces', () => {
+    it('lists the caller workspaces with only the boards they can open', async () => {
+      dataSource.query.mockResolvedValue([
+        { ws_id: WS, ws_name: 'Acme', my_role: 'OWNER', board_id: 'b0b0b0b0-0000-4000-8000-000000000001', board_name: 'Alpha' },
+        { ws_id: WS, ws_name: 'Acme', my_role: 'OWNER', board_id: null, board_name: null },
+        { ws_id: WS_OTHER, ws_name: 'Otro', my_role: 'MEMBER', board_id: null, board_name: null },
+      ]);
+
+      const response = await request(server)
+        .get('/workspaces')
+        .set('Authorization', await auth());
+
+      expect(response.status).toBe(200);
+      expect(response.body).toEqual([
+        { id: WS, name: 'Acme', myRole: 'OWNER', boards: [{ id: 'b0b0b0b0-0000-4000-8000-000000000001', name: 'Alpha' }] },
+        { id: WS_OTHER, name: 'Otro', myRole: 'MEMBER', boards: [] },
+      ]);
+      expect(dataSource.query).toHaveBeenCalledWith(
+        expect.stringContaining('workspace_members'),
+        [ALICE],
+      );
+    });
+
+    it('rejects the request without a token (401)', async () => {
+      const response = await request(server).get('/workspaces');
+
+      expect(response.status).toBe(401);
+      expect(response.body.code).toBe('UNAUTHENTICATED');
+      expect(dataSource.query).not.toHaveBeenCalled();
     });
   });
 });

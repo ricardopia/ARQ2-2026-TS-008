@@ -131,11 +131,22 @@ const ifMatch = v => state.skipIfMatch ? {} : { 'If-Match': `"${v}"` };
 const errMsg = e => e.code === 'NETWORK' ? e.message : `${e.status} ${e.code || ''}: ${e.message}`.trim();
 
 /* ---------- session ---------- */
-function setSession(token, user) { state.token = token; state.user = user; sess.set('token', token); sess.set('user', user); rememberUser(user); loadLocal(); }
+function setSession(token, user) { state.token = token; state.user = user; sess.set('token', token); sess.set('user', user); rememberUser(user); loadLocal(); refreshSidebar(); }
 function logout() { closeBoard(); state.token = null; state.user = null; sess.del('token'); sess.del('user'); renderApp(); }
 const ukey = k => `u.${state.user.id}.${k}`;
 function loadLocal() { state.workspaces = store.get(ukey('ws'), []); state.boards = store.get(ukey('boards'), []); }
 function saveLocal() { store.set(ukey('ws'), state.workspaces); store.set(ukey('boards'), state.boards); }
+/* El servidor es la fuente de verdad de las membresías; localStorage solo
+   cubre la sesión sin conexión. Se refresca al iniciar sesión y al cargar. */
+async function refreshSidebar() {
+  try {
+    const r = await api('GET', '/workspaces');
+    if (!Array.isArray(r.data)) return;
+    state.workspaces = r.data.map(w => ({ id: w.id, name: w.name, myRole: w.myRole }));
+    state.boards = r.data.flatMap(w => (w.boards || []).map(b => ({ id: b.id, workspaceId: w.id, name: b.name })));
+    saveLocal(); renderApp();
+  } catch { /* sin conexión: conserva la lista local */ }
+}
 
 /* ---------- modal ---------- */
 function openModal(node, { wide = false, onClose } = {}) {
@@ -668,6 +679,6 @@ function openGuide() {
 }
 
 /* ---------- boot ---------- */
-if (state.token && state.user) loadLocal();
+if (state.token && state.user) { loadLocal(); refreshSidebar(); }
 renderApp();
 openDeepLink();
