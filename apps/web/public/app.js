@@ -90,7 +90,7 @@ function renderEvidence() {
           h('span', { class: 'st' + String(e.status)[0] }, e.status || 'ERR'), h('span', { class: 'muted' }, e.ms + ' ms'),
           e.ifMatch ? h('span', { class: 'hd' }, 'If-Match ' + e.ifMatch) : null,
           e.etag ? h('span', { class: 'hd' }, 'ETag ' + e.etag) : null),
-        h('pre', null, `X-Correlation-Id: ${e.cid || '-'}\n` + (e.reqBody ? `→ ${e.reqBody}\n` : '') + `← ${e.resBody || ''}`))));
+        h('pre', null, `X-Trace-Id: ${e.tid || '-'}\nX-Correlation-Id: ${e.cid || '-'}\n` + (e.reqBody ? `→ ${e.reqBody}\n` : '') + `← ${e.resBody || ''}`))));
     } else {
       if (!evidence.events.length) body.append(h('div', { class: 'muted' }, 'Abre un tablero para recibir eventos en vivo.'));
       evidence.events.forEach(e => body.append(h('details', { class: 'ev-row' },
@@ -119,7 +119,7 @@ async function api(method, path, { body, headers = {}, noAuth = false } = {}) {
   if (res.status !== 204) { try { data = (res.headers.get('content-type') || '').includes('json') ? await res.json() : await res.text(); } catch { /* empty */ } }
   const clip = v => { const s = typeof v === 'string' ? v : JSON.stringify(v); return s && s.length > 1500 ? s.slice(0, 1500) + '…' : s; };
   logHttp({ feature: featureOf(method, path), time: new Date().toLocaleTimeString(), method, path, status: res.status, ms,
-    ifMatch: hdr['If-Match'], etag: res.headers.get('ETag'), cid: res.headers.get('X-Correlation-Id'),
+    ifMatch: hdr['If-Match'], etag: res.headers.get('ETag'), cid: res.headers.get('X-Correlation-Id'), tid: res.headers.get('X-Trace-Id'),
     reqBody: body !== undefined ? clip(body) : '', resBody: clip(data) });
   if (!res.ok) {
     if (res.status === 401 && state.token && !noAuth) { logout(); toast('Sesión expirada', 'Inicia sesión de nuevo.', 'warn'); }
